@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pytexlogs"
+dynamic = ["version"]
+authors = [
+  { name = "焱铭", email = "lxb-yanming@foxmail.com" },
+]
+description = "LaTeX/BibTeX/Biber/Minted/... 日志解析独立库，从 PyTeXMK 抽离，可嵌入其他工具链。An independent LaTeX/BibTeX/Minted log parser library extracted from PyTeXMK."
+keywords = ["LaTeX", "logs", "parser", "latexmk", "bibtex", "biber", "minted", "asymptote"]
+dependencies = []
+requires-python = ">=3.14"
+license = { text = "GPL-3.0-or-later" }
+classifiers = [
+    "Intended Audience :: Developers",
+    "Intended Audience :: End Users/Desktop",
+    "Intended Audience :: Education",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3.14",
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+    "Operating System :: OS Independent",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Text Processing :: Markup :: LaTeX",
+]
+
+[project.urls]
+Homepage = "https://pypi.org/project/pytexlogs"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.dynamic]
+version = { attr = "pytexlogs.version.__version__" }
+
+[tool.ruff]
+line-length = 120
+
+[[tool.uv.index]]
+name = "pypi"
+url = "https://pypi.tuna.tsinghua.edu.cn/simple/"
+publish-url = "https://pypi.org/project/pytexlogs"
+default = true
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "ruff>=0.11.0",
+    "rich>=15.0.0",
+]
