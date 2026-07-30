@@ -9,8 +9,8 @@ from typing import Any
 from .base import BaseLogParser, LogEntry, LogLevel, ParsedLog
 
 __all__ = [
-    "BibtexParser",
     "BIBTEX_ERROR_HINTS",
+    "BibtexParser",
     "bad_cross_ref_bibtex_re",
     "database_file_re",
     "entries_processed_re",

@@ -10,8 +10,8 @@ from typing import Any
 from .base import BaseLogParser, LogEntry, LogLevel, ParsedLog
 
 __all__ = [
-    "BiberParser",
     "BIBER_WARNING_HINTS",
+    "BiberParser",
     "biber_error_re",
     "biber_generic_error_re",
     "biber_generic_warning_re",

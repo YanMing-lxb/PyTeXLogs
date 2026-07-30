@@ -17,11 +17,11 @@ from .base import (
     LogLevel,
     ParsedLog,
 )
-from .biber import BiberParser, BIBER_WARNING_HINTS
-from .bibtex import BibtexParser, BIBTEX_ERROR_HINTS
+from .biber import BIBER_WARNING_HINTS, BiberParser
+from .bibtex import BIBTEX_ERROR_HINTS, BibtexParser
 from .glossaries import GlossariesParser
 from .integration_demo import run_demo
-from .latexlog import LatexLogParser, LATEX_LOG_HINTS
+from .latexlog import LATEX_LOG_HINTS, LatexLogParser
 from .makeindex import MakeindexParser
 from .manager import LogParserManager
 from .minted import MintedParser

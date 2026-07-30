@@ -33,7 +33,7 @@ else:
 
         from typing import Any as _Any
 
-        def print(self, *objects: _Any, **kwargs: _Any) -> None:  # noqa: ANN001,D401
+        def print(self, *objects: _Any, **kwargs: _Any) -> None:
             # 去掉 rich markup 标签 [xxx]、[/xxx]，然后普通 print
             def _strip(txt: object) -> str:
                 import re as _re_r
