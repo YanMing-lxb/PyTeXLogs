@@ -88,28 +88,32 @@ jobs:
       - name: List dist directory contents
         run: ls -R dist/
 
-      - name: Extract tag name and generate changelog
-        shell: bash
+      - name: Extract tag name
+        run: echo "TAG_NAME=${GITHUB_REF#refs/tags/}" >> "$GITHUB_ENV"
+
+      - name: Generate Changelog
         run: |
-          TAG_NAME=${GITHUB_REF#refs/tags/}
-          echo "TAG_NAME=$TAG_NAME" >> "$GITHUB_ENV"
-          version_header="## v$TAG_NAME"
+          changelog=$(cat CHANGELOG.md)
+          tag_name=${{ env.TAG_NAME }}
+          version_header="## $tag_name"
           version_content=""
-          if [[ -f CHANGELOG.md ]]; then
-            version_content=$(cat CHANGELOG.md | awk -v version_header="$version_header" '
+          if [[ $changelog == *"$version_header"* ]]; then
+            version_content=$(echo "$changelog" | awk -v version_header="$version_header" '
               /^## / { if (p) exit; p=0 }
               $0 ~ version_header { p=1; next }
-              p { print }') || true
+              p')
+            echo "$version_content"
+          else
+            echo "Version $tag_name not found in CHANGELOG.md"
           fi
           echo "$version_content" > CHANGELOG.txt
 
       - name: Publish to GitHub Release
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@v3.0.0
         with:
           body_path: CHANGELOG.txt
           token: ${{ secrets.PUBLISH_PYTEXLOGS }}
-          name: ${{ env.TAG_NAME }}
-          tag_name: ${{ env.TAG_NAME }}
+          name: PyTeXLogs ${{ github.ref_name }}
           files: dist/*
           draft: false
           prerelease: false
