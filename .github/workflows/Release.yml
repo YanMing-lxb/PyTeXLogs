@@ -112,7 +112,7 @@ jobs:
         uses: softprops/action-gh-release@v3.0.0
         with:
           body_path: CHANGELOG.txt
-          token: ${{ secrets.PUBLISH_PYTEXLOGS }}
+          token: ${{ secrets.GITHUB_TOKEN }}
           name: PyTeXLogs ${{ github.ref_name }}
           files: dist/*
           draft: false
