@@ -166,14 +166,18 @@ def run_command(  # noqa: D401,PLR0913
 
 
 def delete_folder(folder_path: str | Path) -> bool:  # noqa: D401
-    """删除指定文件夹及所有内容（不存在也算成功）。"""
+    """删除指定路径（文件或文件夹）及所有内容（不存在也算成功）。"""
     path = Path(folder_path)
     if not path.exists():
-        console.print(f"⚠️ 文件夹不存在：{path}", style="warning")
+        console.print(f"⚠️ 路径不存在：{path}", style="warning")
         return True
     try:
-        shutil.rmtree(path)
-        console.print(f"✓ 已删除文件夹：{path}", style="success")
+        if path.is_file() or path.is_symlink():
+            path.unlink()
+            console.print(f"✓ 已删除文件：{path}", style="success")
+        else:
+            shutil.rmtree(path)
+            console.print(f"✓ 已删除文件夹：{path}", style="success")
         return True
     except Exception as e:  # noqa: BLE001
         console.print(f"✗ 删除失败：{e}", style="error")

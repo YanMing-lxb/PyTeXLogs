@@ -1,6 +1,3 @@
-from __future__ import annotations
-
-
 def test_import_pytexlogs_package():
     import pytexlogs
     assert hasattr(pytexlogs, '__all__')
@@ -50,7 +47,7 @@ def test_format_editor_jumps_smoke():
 
 
 def test_run_log_pipeline_smoke():
-    from pytexlogs import run_log_pipeline, print_summary
+    from pytexlogs import print_summary, run_log_pipeline
     report = run_log_pipeline(
         quiet=True,
         print_terminal=False,

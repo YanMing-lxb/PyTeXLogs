@@ -1,0 +1,15 @@
+This is pdfTeX, Version 3.141592653-2.6-1.40.26 (TeX Live 2024)
+entering extended mode
+(./sample.tex
+LaTeX2e <2024/02/28> patch level 1
+(/usr/local/texlive/2024/texmf-dist/tex/latex/base/article.cls
+Document Class: article 2023/07/15 v1.4n Standard LaTeX document class)
+(./sample.aux)
+! Undefined control sequence.
+l.5 \foobar
+                \bar
+?
+! Emergency stop.
+l.5 \foobar
+                \bar
+!  ==> Fatal error occurred, no output PDF file produced!

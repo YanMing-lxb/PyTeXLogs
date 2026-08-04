@@ -1,0 +1,8 @@
+file,line,level,category,tool,text,hint,source_path
+D:\Document YM\Desktop Document\Tools_Development\PyTeXLogs\main.tex,2,warning,compile,alice.log,找不到 citation `x`,,C:\Users\lixue\AppData\Local\Temp\tmps5xxk7a3\alice.log
+D:\Document YM\Desktop Document\Tools_Development\PyTeXLogs\main.tex,1,error,compile,alice.log,": Undefined control sequence.
+l.3 \badcmdA",检查 \ 命令名拼写，或确认是否已 \usepackage 对应宏包。,C:\Users\lixue\AppData\Local\Temp\tmps5xxk7a3\alice.log
+D:\Document YM\Desktop Document\Tools_Development\PyTeXLogs\main.tex,1,warning,compile,bob.log,"LaTeX Warning: Overfull \\hbox (10pt too wide) in paragraph at lines 10--15
+",行/盒子过宽超过页面边距：手动断行、放宽 \sloppy、或调整图文尺寸。,C:\Users\lixue\AppData\Local\Temp\tmps5xxk7a3\bob.log
+D:\Document YM\Desktop Document\Tools_Development\PyTeXLogs\main.tex,1,error,compile,charlie.log,"LaTeX: File `missingpackage.sty' not found.
+l.7 \usepackage{missingpackage}",,C:\Users\lixue\AppData\Local\Temp\tmps5xxk7a3\charlie.log

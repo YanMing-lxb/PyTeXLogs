@@ -1,0 +1,55 @@
+{
+  "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "pytexlogs",
+          "version": "0.2.0",
+          "informationUri": "https://pypi.org/project/pytexlogs"
+        }
+      },
+      "results": [
+        {
+          "ruleId": "warning-b3f417de",
+          "level": "warning",
+          "message": {
+            "text": "找不到 reference `missing`"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "main.tex"
+                },
+                "region": {
+                  "startLine": 3
+                }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "error-1f3e5ee8",
+          "level": "failure",
+          "message": {
+            "text": ": Undefined control sequence.\nl.5 \\badcmd"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "main.tex"
+                },
+                "region": {
+                  "startLine": 1
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
