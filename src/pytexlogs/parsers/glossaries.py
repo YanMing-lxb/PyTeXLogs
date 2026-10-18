@@ -12,6 +12,12 @@ error_re = re.compile(r"^!!\s+(.+)")
 warning_line_re = re.compile(r"^Warning\s+line\s+(\d+)\s*:\s*(.+)")
 warning_dash_re = re.compile(r"^Warning\s*--(.+)$")
 
+# --- MiKTeX 风格（与 makeindex.py 保持一致）-----------------------------------
+# MiKTeX 的 makeindex/glossaries 不写 `##` 前缀，而是 `....done (N entries accepted, M rejected)`。
+miktex_entries_re = re.compile(r"done\s*\((\d+)\s+entries?\s+accepted,\s*(\d+)\s+rejected\)")
+miktex_style_error_re = re.compile(r"^\*\*\s+(.+?)\s*\(file\s*=\s*(.+?),\s*line\s*=\s*(\d+)\)\s*:\s*$")
+miktex_style_error_brief_re = re.compile(r"^\*\*\s+(.+)$")
+
 xindy_error_re = re.compile(r"^ERROR:\s*(.+)")
 xindy_warning_re = re.compile(r"^WARNING:\s*(.+)")
 xindy_loading_module_re = re.compile(r"Loading module\s+(.+)")
@@ -128,14 +134,41 @@ class GlossariesParser(BaseLogParser):
         entries_count = 0
         warnings = 0
         warning_entries_seen = 0
-        for line in log_text.split("\n"):
+        for raw_line in log_text.split("\n"):
+            line = raw_line.strip()
             m = entries_re.match(line)
+            if m:
+                entries_count = int(m.group(1))
+                continue
+            m = miktex_entries_re.search(line)
             if m:
                 entries_count = int(m.group(1))
                 continue
             m = warnings_issued_re.match(line)
             if m:
                 warnings = int(m.group(1))
+                continue
+            m = miktex_style_error_re.match(line)
+            if m:
+                self.build_log.append(
+                    LogEntry(
+                        level=LogLevel.ERROR,
+                        file=self._resolve_style_file(m.group(2)),
+                        line=int(m.group(3)),
+                        text=m.group(1).strip(),
+                    )
+                )
+                continue
+            m = miktex_style_error_brief_re.match(line)
+            if m:
+                self.build_log.append(
+                    LogEntry(
+                        level=LogLevel.ERROR,
+                        file=file_ref,
+                        line=1,
+                        text=m.group(1).strip(),
+                    )
+                )
                 continue
             m = error_re.match(line)
             if m:
@@ -173,6 +206,11 @@ class GlossariesParser(BaseLogParser):
                 warning_entries_seen += 1
                 continue
         return entries_count, max(warnings, warning_entries_seen)
+
+    @staticmethod
+    def _resolve_style_file(filename: str) -> str:
+        """样式文件路径原样保留（`.ist` / `.xdy`），便于判断是哪个文件出问题。"""
+        return filename or ""
 
     def _parse_xindy(self, log_text: str) -> tuple[int, int]:
         file_ref = self.root_file

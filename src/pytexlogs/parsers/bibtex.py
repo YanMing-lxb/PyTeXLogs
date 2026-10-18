@@ -53,7 +53,15 @@ error_aux_file_re = re.compile(r"^(.*)---while reading file (.*)$", re.MULTILINE
 re_error = re.compile(r"---(line (?P<line>[0-9]+) of|while reading) file (?P<file>.*)")
 
 database_file_re = re.compile(r"^Database file #\d+: (.+)$", re.MULTILINE)
-entries_processed_re = re.compile(r"^(\d+) entries, (\d+) warnings?$", re.MULTILINE)
+# BibTeX 的条目统计有三种写法：
+#   TeX Live    `39 entries, 2 warnings`      （单行带 warnings）
+#   TeX Live 旧  `(39 entries)`              （括号内）
+#   MiKTeX      `You've used 39 entries,`     （带缩进、逗号收尾、warnings 单独成行）
+# 用「紧邻数字前的断言」而非「必须前面有空白/括号」：行首的 `39 entries, ...`
+# 前面没有任何字符，要求 [(\s] 会直接漏掉整个 TeX Live 单行写法。
+# 真实 .blg 全文只有一处 "N entries" 字样，因此宽松匹配无误报风险。
+entries_processed_re = re.compile(r"(?<!\d)(\d+)\s+entries?\b")
+warnings_processed_re = re.compile(r"(?<!\d)(\d+)\s+warnings?\b")
 
 
 class BibtexParser(BaseLogParser):
@@ -178,10 +186,16 @@ class BibtexParser(BaseLogParser):
                 self._database_files.append(filename)
 
     def _scan_entries_stats(self, log_text: str) -> None:
-        m = entries_processed_re.search(log_text)
-        if m:
-            self._entries_processed = int(m.group(1))
-            self._warnings_count = max(self._warnings_count, int(m.group(2)))
+        """提取 ``39 entries`` / ``N warnings`` 统计。
+
+        TeX Live 写 ``39 entries, 2 warnings``，MiKTeX 写 ``You've used 39 entries,``
+        后跟内建函数调用计数，warnings 只在 ``warning$ -- 0`` 这类行里。
+        两个模式分别取最大值，覆盖两种发行版。
+        """
+        for m in entries_processed_re.finditer(log_text):
+            self._entries_processed = max(self._entries_processed, int(m.group(1)))
+        for m in warnings_processed_re.finditer(log_text):
+            self._warnings_count = max(self._warnings_count, int(m.group(1)))
 
     def _parse_line_with_unified_error(self, line: str, last_line: str) -> None:
         line = line.strip("\x00")
