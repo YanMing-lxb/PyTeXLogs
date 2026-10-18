@@ -72,6 +72,27 @@ def test_replace_namespace_drops_old_keys(tmp_path):
     assert store.get_namespace("pytexmk") == {"other": True}
 
 
+def test_remove_namespace_keeps_others(tmp_path):
+    """pytexmk -c 只该丢弃自己的构建基线，不能连带删掉引用缓存。"""
+    store = ProjectStateStore(tmp_path, "main")
+    store.update_refs(keys=["keep-me"])
+    store.update_build(round=5)
+
+    assert store.remove_namespace("pytexmk") is True
+
+    data = store.load()
+    assert "pytexmk" not in data
+    assert data["pytexlogs"]["refs"]["keys"] == ["keep-me"]
+
+
+def test_remove_missing_namespace_is_noop(tmp_path):
+    store = ProjectStateStore(tmp_path, "main")
+    store.update_refs(keys=["a"])
+
+    assert store.remove_namespace("nope") is True
+    assert store.get_refs()["keys"] == ["a"]
+
+
 @pytest.mark.parametrize("payload", ["{not json", "[]", '"a string"', "null", ""])
 def test_corrupted_file_degrades_to_empty(tmp_path, payload):
     """坏文件不能让编译崩掉，也不能被删（留给下次覆写修好）。"""

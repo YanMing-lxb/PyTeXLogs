@@ -155,6 +155,14 @@ class ProjectStateStore:
         """整体替换某个命名空间（该命名空间自己的数据，不涉及别人）。"""
         return self._mutate(lambda state: self._set_namespace(state, name, value))
 
+    def remove_namespace(self, name: str) -> bool:
+        """删除某个命名空间，其它命名空间原样保留。
+
+        用于"清理辅助文件"这类场景：调用方只该丢掉自己的状态，不能连带
+        抹掉别的工具（例如 pytexlogs 的引用缓存）。
+        """
+        return self._mutate(lambda state: state.pop(name, None))
+
     def clear(self) -> bool:
         """删除状态文件（``pytexmk -c`` 等清理场景使用）。"""
         try:
