@@ -22,7 +22,20 @@ citation_command_re = re.compile(
     re.IGNORECASE,
 )
 
+#: .aux 中三种记录引用键的写法。原实现每次提取都在函数体内重新 compile，
+#: 这里提到模块级只编译一次，并把顺序固定为 citation→abx@aux@cite→bibcite。
+_AUX_CITE_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"\\citation\{([^}]+)\}"),
+    re.compile(r"\\abx@aux@cite\{[^}]*\}\{([^}]+)\}"),
+    re.compile(r"\\bibcite\{([^}]+)\}"),
+)
+
 logger = logging.getLogger(__name__)
+
+
+def _split_keys(group: str) -> list[str]:
+    """把 ``key1,key2, key3`` 这类组内容拆成去空白、去空项的键列表。"""
+    return [key for raw in group.split(",") if (key := raw.strip())]
 
 
 class RefChangeTracker:
@@ -37,47 +50,23 @@ class RefChangeTracker:
         self._translate_fn: Callable[[str], str] = translate_fn or (lambda s: s)
 
     def extract_from_aux(self, aux_path: str | Path) -> list[str]:
-        """从 LaTeX .aux 文件提取所有 cite 引用键列表。"""
+        """从 LaTeX .aux 文件提取所有 cite 引用键列表。
+
+        三个模式共用一段拆分逻辑：正则只负责抓 ``\\citation{...}`` 的花括号内容，
+        键的实际拆分交给 :func:`_split_keys`（walrus + 列表推导）。
+        原实现对每个模式都套一层 ``try/except Exception``，但 ``m.group(1)`` 对
+        有捕获组的匹配不可能抛异常，因此这里不再捕获，只在真正可能失败的文件
+        读取处（:meth:`detect_mode`）保留容错。
+        """
         path = Path(aux_path)
         if not path.exists():
             return []
         text = path.read_text(encoding="utf-8", errors="ignore")
+
         keys: list[str] = []
-
-        pattern1 = re.compile(r"\\citation\{([^}]+)\}")
-        pattern2 = re.compile(r"\\abx@aux@cite\{[^}]*\}\{([^}]+)\}")
-        pattern3 = re.compile(r"\\bibcite\{([^}]+)\}")
-
-        for m in pattern1.finditer(text):
-            try:
-                group = m.group(1)
-                for k in group.split(","):
-                    key = k.strip()
-                    if key:
-                        keys.append(key)
-            except Exception as e:
-                logger.warning("pattern1 匹配解析异常: %s", e)
-
-        for m in pattern2.finditer(text):
-            try:
-                group = m.group(1)
-                for k in group.split(","):
-                    key = k.strip()
-                    if key:
-                        keys.append(key)
-            except Exception as e:
-                logger.warning("pattern2 匹配解析异常: %s", e)
-
-        for m in pattern3.finditer(text):
-            try:
-                group = m.group(1)
-                for k in group.split(","):
-                    key = k.strip()
-                    if key:
-                        keys.append(key)
-            except Exception as e:
-                logger.warning("pattern3 匹配解析异常: %s", e)
-
+        for pattern in _AUX_CITE_PATTERNS:
+            for match in pattern.finditer(text):
+                keys.extend(_split_keys(match.group(1)))
         return keys
 
     def extract_from_bcf(self, bcf_path: str | Path) -> list[str]:

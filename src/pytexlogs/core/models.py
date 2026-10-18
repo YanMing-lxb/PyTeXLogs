@@ -5,7 +5,11 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, override  # noqa: F401  # override 仅供注解使用
+
+#: 严重程度排序：数字越小越严重（ERROR 最靠前）。
+#: 定义在模块级而非每次比较时重建，避免排序时的字典构造开销。
+_SEVERITY_RANK: dict[LogLevel, int]
 
 
 class LogLevel(Enum):
@@ -19,18 +23,20 @@ class LogLevel(Enum):
     GRAPHIC = "graphic"
     PAGE = "page"
 
-    def __lt__(self, other: LogLevel) -> bool:
+    @property
+    def severity(self) -> int:
+        """该等级的严重程度序号（0=最严重），用于排序与阈值过滤。"""
+        return _SEVERITY_RANK[self]
+
+    def __lt__(self, other: object) -> bool:
         """按严重程度比较两个 LogLevel 等级大小。"""
-        order: dict[LogLevel, int] = {
-            LogLevel.ERROR: 0,
-            LogLevel.WARNING: 1,
-            LogLevel.TYPESET: 2,
-            LogLevel.FONT: 3,
-            LogLevel.GRAPHIC: 4,
-            LogLevel.PAGE: 5,
-            LogLevel.INFO: 6,
-        }
-        return order[self] < order.get(other, 7)
+        if not isinstance(other, LogLevel):
+            return NotImplemented
+        return _SEVERITY_RANK[self] < _SEVERITY_RANK[other]
+
+
+#: 用 declared order 生成排名：声明顺序即严重程度顺序，避免手写映射表写错。
+_SEVERITY_RANK = {level: rank for rank, level in enumerate(LogLevel)}
 
 
 @dataclass(slots=True)
@@ -44,8 +50,43 @@ class LogEntry:
     error_pos_text: str = ""
 
 
+class _EntryHolder:
+    """``ParsedLog`` 与 ``ToolResult`` 共同的按等级筛选逻辑。
+
+    两者字段不完全相同（``ParsedLog`` 无 ``stats`` 对象、``ToolResult`` 无
+    ``category``），但 ``errors`` / ``warnings`` / ``info`` 三个属性的实现完全
+    一致；抽到这里避免三份重复代码，也保证筛选口径永远同步。
+    """
+
+    #: 子类 dataclass 提供；这里只声明类型供检查器与读者参考。
+    #: 注意：基类必须把 entries 放进 __slots__，否则子类的 slots=True 会失效
+    #: （实例重新获得 __dict__，内存与访问开销都退化）。
+    entries: list[LogEntry]
+
+    __slots__ = ("entries",)
+
+    def by_level(self, level: LogLevel) -> list[LogEntry]:
+        """按等级筛选条目。"""
+        return [e for e in self.entries if e.level == level]
+
+    @property
+    def errors(self) -> list[LogEntry]:
+        """返回所有等级为 ERROR 的条目列表。"""
+        return self.by_level(LogLevel.ERROR)
+
+    @property
+    def warnings(self) -> list[LogEntry]:
+        """返回所有等级为 WARNING 的条目列表。"""
+        return self.by_level(LogLevel.WARNING)
+
+    @property
+    def info(self) -> list[LogEntry]:
+        """返回所有等级为 INFO 的条目列表。"""
+        return self.by_level(LogLevel.INFO)
+
+
 @dataclass(slots=True)
-class ParsedLog:
+class ParsedLog(_EntryHolder):
     """解析后的日志结果：条目列表、原始文本、来源、工具名、统计。"""
 
     entries: list[LogEntry] = field(default_factory=list)
@@ -55,21 +96,6 @@ class ParsedLog:
     category: str = ""
     importance: Literal["high", "medium", "low"] = "low"
     stats: dict[str, Any] = field(default_factory=dict)
-
-    @property
-    def errors(self) -> list[LogEntry]:
-        """返回所有等级为 ERROR 的条目列表。"""
-        return [e for e in self.entries if e.level == LogLevel.ERROR]
-
-    @property
-    def warnings(self) -> list[LogEntry]:
-        """返回所有等级为 WARNING 的条目列表。"""
-        return [e for e in self.entries if e.level == LogLevel.WARNING]
-
-    @property
-    def info(self) -> list[LogEntry]:
-        """返回所有等级为 INFO 的条目列表。"""
-        return [e for e in self.entries if e.level == LogLevel.INFO]
 
     @property
     def is_empty(self) -> bool:
@@ -228,7 +254,7 @@ class ToolResultStats:
 
 
 @dataclass(slots=True)
-class ToolResult:
+class ToolResult(_EntryHolder):
     """单个工具解析结果与条目聚合。"""
 
     tool_name: str = ""
@@ -238,21 +264,6 @@ class ToolResult:
     raw_text: str = ""
     entries: list[LogEntry] = field(default_factory=list)
     stats: ToolResultStats = field(default_factory=ToolResultStats)
-
-    @property
-    def errors(self) -> list[LogEntry]:
-        """返回所有等级为 ERROR 的条目列表。"""
-        return [e for e in self.entries if e.level == LogLevel.ERROR]
-
-    @property
-    def warnings(self) -> list[LogEntry]:
-        """返回所有等级为 WARNING 的条目列表。"""
-        return [e for e in self.entries if e.level == LogLevel.WARNING]
-
-    @property
-    def info(self) -> list[LogEntry]:
-        """返回所有等级为 INFO 的条目列表。"""
-        return [e for e in self.entries if e.level == LogLevel.INFO]
 
     @property
     def is_empty(self) -> bool:
