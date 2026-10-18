@@ -21,6 +21,7 @@ from .core.models import (
     ParsedLog,
     ParsedPipelineReport,
     ToolResult,
+    ToolResultReport,
     ToolResultStats,
 )
 from .core.reftracker import RefChangeTracker
@@ -119,6 +120,7 @@ __all__ = [
     "Report",
     "StateFileCorrupted",
     "ToolResult",
+    "ToolResultReport",
     "ToolResultStats",
     "XindyParser",
     "filter_severity",

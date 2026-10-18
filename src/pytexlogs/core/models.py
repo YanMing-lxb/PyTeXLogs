@@ -166,6 +166,25 @@ class BaseLogParser(ABC):
 # --- 报告数据模型 ---
 
 
+#: 报告层条目等级的可比较类型（兼容枚举与纯字符串两种来源）。
+ReportLevelLike = LogLevel | str
+
+#: 等级字符串 → LogLevel 的查找表（构建一次，避免每次筛选都重建字典）。
+_LEVEL_LOOKUP: dict[str, LogLevel] = {lv.value: lv for lv in LogLevel}
+
+
+def _resolve_level(level_value: ReportLevelLike) -> LogLevel:
+    """把等级值归一化成 LogLevel；未知等级按 INFO 兜底。
+
+    ``ReportEntry.level`` 存的是字符串（为了 JSON 兼容），而 ``ParsedLog`` 用的是
+    ``LogLevel`` 枚举。两种模型对外暴露同一套 ``errors/warnings/info/by_level``
+    口径，这里负责把两种输入都折成枚举。
+    """
+    if isinstance(level_value, LogLevel):
+        return level_value
+    return _LEVEL_LOOKUP.get(level_value, LogLevel.INFO)
+
+
 @dataclass(slots=True)
 class ReportEntry:
     """单条日志条目，仅使用 JSON 兼容类型。"""
@@ -180,7 +199,11 @@ class ReportEntry:
 
 @dataclass(slots=True)
 class ToolResultReport:
-    """单个工具的解析结果汇总。"""
+    """单个工具的解析结果汇总。
+
+    ``errors`` / ``warnings`` / ``info`` / ``by_level`` 与 :class:`ParsedLog`
+    保持同一套口径，下游不必再自己按等级过滤 ``entries``。
+    """
 
     tool_name: str = ""
     category: str = ""
@@ -189,6 +212,26 @@ class ToolResultReport:
     entries: list[ReportEntry] = field(default_factory=list)
     stats: dict[str, Any] = field(default_factory=dict)
     parse_exception: dict[str, str] | None = None
+
+    def by_level(self, level: ReportLevelLike) -> list[ReportEntry]:
+        """按等级筛选条目（枚举或字符串均可）。"""
+        wanted = _resolve_level(level).value
+        return [e for e in self.entries if e.level == wanted]
+
+    @property
+    def errors(self) -> list[ReportEntry]:
+        """所有 ERROR 级条目。"""
+        return self.by_level(LogLevel.ERROR)
+
+    @property
+    def warnings(self) -> list[ReportEntry]:
+        """所有 WARNING 级条目。"""
+        return self.by_level(LogLevel.WARNING)
+
+    @property
+    def info(self) -> list[ReportEntry]:
+        """所有 INFO 级条目。"""
+        return self.by_level(LogLevel.INFO)
 
 
 @dataclass(slots=True)
