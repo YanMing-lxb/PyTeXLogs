@@ -28,7 +28,7 @@ def test_to_json_has_keys():
     data = json.loads(raw)
 
     assert data["__format__"] == "pytexlogs-json-v1"
-    assert data["pytexlogs_version"] == "0.3.0"
+    assert data["pytexlogs_version"] == "0.4.0"
     assert "meta" in data
     assert "tool_results" in data
 

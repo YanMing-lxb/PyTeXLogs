@@ -11,14 +11,14 @@ authors = [
 description = "LaTeX/BibTeX/Biber/Minted/... 日志解析独立库，从 PyTeXMK 抽离，可嵌入其他工具链。An independent LaTeX/BibTeX/Minted log parser library extracted from PyTeXMK."
 keywords = ["LaTeX", "logs", "parser", "latexmk", "bibtex", "biber", "minted", "asymptote"]
 dependencies = []
-requires-python = ">=3.14"
+requires-python = ">=3.15"
 license = "GPL-3.0-or-later"
 classifiers = [
     "Intended Audience :: Developers",
     "Intended Audience :: End Users/Desktop",
     "Intended Audience :: Education",
     "Intended Audience :: Science/Research",
-    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.15",
     "Operating System :: OS Independent",
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Topic :: Text Processing :: Markup :: LaTeX",
@@ -44,6 +44,7 @@ version = { attr = "pytexlogs.version.__version__" }
 
 [tool.ruff]
 line-length = 120
+target-version = "py315"
 
 [[tool.uv.index]]
 name = "pypi"
@@ -60,7 +61,7 @@ dev = [
 ]
 
 [tool.mypy]
-python_version = "3.14"
+python_version = "3.15"
 strict = true
 show_error_codes = true
 

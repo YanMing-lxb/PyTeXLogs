@@ -1,15 +1,14 @@
 """参考文献引用变更追踪：对比新旧 .aux/.bcf 检测新增/移除引用。"""
 
-import json
 import logging
 import re
 from collections import Counter
 from collections.abc import Callable, Iterable
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
 from ..parsers.biber import BiberParser
+from .state import PROJECT_STATE_FILENAME, ProjectStateStore
 
 __all__ = [
     "RefChangeTracker",
@@ -30,10 +29,11 @@ class RefChangeTracker:
     """参考文献变更追踪器：从 aux/bcf 提取引用键并与缓存 diff。"""
 
     def __init__(self, auxdir: str | Path, jobname: str, translate_fn: Callable[[str], str] | None = None) -> None:
-        """初始化 RefChangeTracker：缓存 auxdir、jobname 与引用缓存路径。"""
+        """初始化 RefChangeTracker：缓存 auxdir、jobname 与共享状态存储句柄。"""
         self.auxdir = Path(auxdir)
         self.jobname = jobname
-        self.cache_path = self.auxdir / ".pytexmk_refcache.json"
+        self.cache_path = self.auxdir / PROJECT_STATE_FILENAME
+        self._store = ProjectStateStore(self.auxdir, jobname)
         self._translate_fn: Callable[[str], str] = translate_fn or (lambda s: s)
 
     def extract_from_aux(self, aux_path: str | Path) -> list[str]:
@@ -121,44 +121,27 @@ class RefChangeTracker:
         return self.extract_current_with_counts()[1]
 
     def load_cache(self) -> list[str]:
-        """从 JSON 缓存加载上次保存的引用键列表。"""
-        if not self.cache_path.exists():
-            return []
-        try:
-            data = json.loads(self.cache_path.read_text(encoding="utf-8"))
-            return list(data.get("keys", []))
-        except Exception:
-            return []
+        """从共享状态文件加载上次保存的引用键列表。"""
+        keys = self._store.get_refs().get("keys", [])
+        return [str(k) for k in keys] if isinstance(keys, list) else []
 
     def load_cache_counts(self) -> dict[str, int]:
-        """从 JSON 缓存加载上次保存的 key_counts 统计。"""
-        if not self.cache_path.exists():
-            return {}
-        try:
-            data = json.loads(self.cache_path.read_text(encoding="utf-8"))
-            kc = data.get("key_counts", {})
-            if isinstance(kc, dict):
-                return {str(k): int(v) for k, v in kc.items()}
-            return {}
-        except Exception:
-            return {}
+        """从共享状态文件加载上次保存的 key_counts 统计。"""
+        kc = self._store.get_refs().get("key_counts", {})
+        if isinstance(kc, dict):
+            return {str(k): int(v) for k, v in kc.items()}
+        return {}
 
     def save_cache(
         self, keys: Iterable[str], key_counts: dict[str, int] | None = None
     ) -> None:
-        """将引用键列表保存为 JSON 缓存文件（schema v2）。"""
-        self.auxdir.mkdir(parents=True, exist_ok=True)
+        """将引用键写入共享状态文件的 ``pytexlogs.refs`` 命名空间。
+
+        只更新本命名空间，PyTeXMK 写在 ``pytexmk.build`` 下的构建状态原样保留。
+        """
         if key_counts is None:
             key_counts = dict(Counter(keys))
-        data = {
-            "schema_version": 2,
-            "timestamp": datetime.now(tz=UTC).isoformat(),
-            "keys": sorted(set(keys)),
-            "key_counts": key_counts,
-        }
-        self.cache_path.write_text(
-            json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
+        self._store.update_refs(keys=sorted(set(keys)), key_counts=key_counts)
 
     def diff(
         self, now_keys: Iterable[str], old_keys: Iterable[str]

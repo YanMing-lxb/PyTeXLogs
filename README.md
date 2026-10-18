@@ -1,6 +1,6 @@
 # PyTeXLogs
 
-PyTeXLogs v0.3.0 是 LaTeX/BibTeX/Biber/Minted/Asymptote/Makeindex 日志解析库。可嵌入任意 Python 工具链。
+PyTeXLogs v0.4.0 是 LaTeX/BibTeX/Biber/Minted/Asymptote/Makeindex 日志解析库。可嵌入任意 Python 工具链。
 
 ## 安装
 
@@ -201,7 +201,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.15"
       - run: pip install uv && uv tool install --python 3.10 pytexlogs
       - name: 编译论文
         run: latexmk -pdf -outdir=build main.tex || true

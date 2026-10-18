@@ -25,11 +25,11 @@ class TestVersionHelp:
     """B1 + B2: --version / --help 基础行为。"""
 
     def test_version(self):
-        """B1/TR-6.1: --version stdout 含 pytexlogs 0.3.0，exitcode=0。"""
+        """B1/TR-6.1: --version stdout 含 pytexlogs 0.4.0，exitcode=0。"""
         r = _run_cli("--version")
         assert r.returncode == 0, f"stderr={r.stderr}"
         assert "pytexlogs" in r.stdout
-        assert "0.3.0" in r.stdout
+        assert "0.4.0" in r.stdout
 
     def test_help_lists_subcmds(self):
         """B2/TR-6.2: --help 列出 check/summary/export/demo 四字命令字样。"""

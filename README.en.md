@@ -201,7 +201,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.15"
       - run: pip install uv && uv tool install --python 3.10 pytexlogs
       - name: Compile paper
         run: latexmk -pdf -outdir=build main.tex || true

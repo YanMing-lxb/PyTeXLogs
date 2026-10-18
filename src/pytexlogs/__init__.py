@@ -24,6 +24,12 @@ from .core.models import (
 from .core.reftracker import RefChangeTracker
 from .core.registry import LogParserRegistry, LogParserSpec, load_entry_points
 from .core.report import load_report, write_report
+from .core.state import (
+    PROJECT_STATE_FILENAME,
+    SCHEMA_VERSION,
+    ProjectStateStore,
+    StateFileCorrupted,
+)
 from .display import (
     CATEGORY_LABEL,
     CATEGORY_ORDER,
@@ -83,6 +89,8 @@ __all__ = [
     "CATEGORY_ORDER",
     "IMPORTANCE_LABEL",
     "LATEX_LOG_HINTS",
+    "PROJECT_STATE_FILENAME",
+    "SCHEMA_VERSION",
     "AsymptoteParser",
     "BaseLogParser",
     "BiberParser",
@@ -100,10 +108,12 @@ __all__ = [
     "NomenclParser",
     "ParsedLog",
     "ParsedPipelineReport",
+    "ProjectStateStore",
     "PythontexParser",
     "RefChangeTracker",
     "Registry",
     "Report",
+    "StateFileCorrupted",
     "ToolResult",
     "ToolResultStats",
     "XindyParser",
