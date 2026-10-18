@@ -40,6 +40,7 @@ pytexlogs = "pytexlogs.cli.main:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
+# 声明本包自带类型标注（PEP 561），下游类型检查器才能看到 pytexlogs 的标注
 pytexlogs = ["py.typed"]
 
 [tool.setuptools.dynamic]
