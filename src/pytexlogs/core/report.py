@@ -131,7 +131,7 @@ def write_report(report: ParsedPipelineReport, path: str | Path) -> Path | None:
 def load_report(path: str | Path) -> ParsedPipelineReport:
     """从 JSON 文件加载 ParsedPipelineReport，高 schema_version 警告。"""
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             d: dict[str, Any] = json.load(f)
     except FileNotFoundError:
         logger.error("报告文件不存在: %s", path)

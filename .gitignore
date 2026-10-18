@@ -7,5 +7,9 @@ build/
 *.egg-info/
 .venv/
 .coverage
-ruff_cache/
+coverage.xml
+.ruff_cache/
+.mypy_cache/
 .trae/*
+.vscode/*
+!.vscode/extensions.json

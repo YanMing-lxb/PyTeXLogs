@@ -9,6 +9,8 @@ Architecture rule (DO NOT BREAK):
 """
 
 import warnings as _warnings
+from collections.abc import Callable
+from typing import Any
 
 from .core.engine import run_pipeline as _run_pipeline_raw
 from .core.manager import LogParserManager
@@ -61,8 +63,10 @@ from .parsers.pythontex import PythontexParser
 from .parsers.xindy import XindyParser
 
 
-def _deprecating_alias(wrapped, old_name, new_name):
-    def _wrapper(*args, **kwargs):
+def _deprecating_alias(wrapped: Callable[..., Any], old_name: str, new_name: str) -> Callable[..., Any]:
+    """为被重命名的公共函数生成一个发出 DeprecationWarning 的兼容别名。"""
+
+    def _wrapper(*args: Any, **kwargs: Any) -> Any:
         _warnings.warn(
             f"{old_name}() is deprecated since pytexlogs 0.3.0; use {new_name}() instead",
             DeprecationWarning,
@@ -71,7 +75,7 @@ def _deprecating_alias(wrapped, old_name, new_name):
         return wrapped(*args, **kwargs)
 
     _wrapper.__name__ = old_name
-    _wrapper.__wrapped__ = wrapped
+    _wrapper.__wrapped__ = wrapped  # type: ignore[attr-defined]  # functools.wraps 风格的元数据标记
     return _wrapper
 
 

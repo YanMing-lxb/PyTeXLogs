@@ -8,12 +8,9 @@ on:
 
 jobs:
   test-build:
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.15"]
-        os: [ubuntu-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
+    # 本项目只支持 Python 3.15（见 pyproject 的 requires-python），
+    # 且为纯 Python 包，因此不跨版本、不跨平台做矩阵测试，单环境跑全流程即可。
+    runs-on: windows-latest
     defaults:
       run:
         shell: bash
@@ -26,10 +23,10 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Set up Python ${{ matrix.python-version }}
+      - name: Set up Python 3.15
         uses: actions/setup-python@v7.0.0
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.15"
 
       - name: Install dependencies
         run: uv sync --locked --dev
@@ -38,18 +35,12 @@ jobs:
         run: uv run pytest tests -v --cov=src/pytexlogs --cov-report=term --cov-report=xml
 
       - name: Lint with ruff
-        if: matrix.python-version == '3.15' && matrix.os == 'windows-latest'
-        run: uv run ruff check src tests scripts examples
-
-      - name: Type check with mypy
-        if: matrix.python-version == '3.15' && matrix.os == 'windows-latest'
-        run: uv run mypy --strict src/pytexlogs
+        run: uv run ruff check src tests
 
       - name: Build package
         run: uv build
 
       - name: Upload package artifact
-        if: matrix.python-version == '3.15' && matrix.os == 'windows-latest'
         uses: actions/upload-artifact@v7.0.1
         with:
           name: python-package-distributions

@@ -208,7 +208,7 @@ def main(argv: list[str] | None = None) -> int:
                 lines.append("By category: " + ", ".join(f"{k}={v}" for k, v in stats_c.items()) or "(empty)")
                 lines.append("By parser:   " + ", ".join(f"{k}={v}" for k, v in stats_p.items()) or "(empty)")
                 lines.append("By level:    " + ", ".join(f"{k}={v}" for k, v in stats_l.items()) or "(empty)")
-                for entry, cat, tool, src in entries_info:
+                for entry, cat, tool, _src in entries_info:
                     level_str = entry.level.value if hasattr(entry.level, "value") else str(entry.level)
                     lines.append(
                         f"[{level_str.upper():7s}] {entry.file}:{entry.line} "

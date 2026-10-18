@@ -560,7 +560,7 @@ class LatexLogParser(BaseLogParser):
             (underfull_box_alt_re, False, False),
             (underfull_box_output_re, False, True),
         ]
-        for pattern, is_overfull, is_output in bad_box_patterns:
+        for pattern, is_overfull, _is_output in bad_box_patterns:
             match = pattern.match(line)
             if match:
                 if self.current_result and self.current_result.get("type") is not None:

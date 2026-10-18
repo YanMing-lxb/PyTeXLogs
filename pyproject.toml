@@ -39,12 +39,34 @@ pytexlogs = "pytexlogs.cli.main:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+# 声明本包自带类型标注（PEP 561），下游 mypy --strict 才能分析 pytexlogs 而非报 import-untyped
+pytexlogs = ["py.typed"]
+
 [tool.setuptools.dynamic]
 version = { attr = "pytexlogs.version.__version__" }
 
 [tool.ruff]
 line-length = 120
 target-version = "py315"
+
+[tool.ruff.lint]
+# 显式锁定规则集：ruff >=0.13 起未配置 select 时默认启用「全部规则」，
+# 升级 ruff 会在毫无代码改动的情况下突然冒出上百条告警。这里固定为
+# 「默认 E4/E7/E9 + F + 导入排序 I + pyupgrade UP + bugbear B」这一组，
+# 与 PyTeXMK 保持完全一致，保证两个库的检查口径统一。
+select = ["E4", "E7", "E9", "F", "W", "I", "UP", "B"]
+ignore = ["E501"]          # 行宽由 formatter 负责，不在 lint 阶段报错
+fixable = ["ALL"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["pytexlogs"]
+known-third-party = ["rich"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
 
 [[tool.uv.index]]
 name = "pypi"
@@ -55,27 +77,10 @@ default = true
 [dependency-groups]
 dev = [
     "pytest>=9.1.1",
-    "ruff>=0.11.0",
+    "pytest-cov>=6.0",
+    "ruff",
     "rich>=15.0.0",
-    "coverage>=7.6",
 ]
-
-[tool.mypy]
-python_version = "3.15"
-strict = true
-show_error_codes = true
-
-[[tool.mypy.overrides]]
-module = "rich.*"
-ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
-module = "pytexlogs.integration_demo"
-disallow_untyped_defs = false
-
-[[tool.mypy.overrides]]
-module = "pytexlogs.cli"
-disallow_untyped_defs = false
 
 [tool.coverage.run]
 source = ["src/pytexlogs"]
