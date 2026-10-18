@@ -40,7 +40,6 @@ pytexlogs = "pytexlogs.cli.main:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-# 声明本包自带类型标注（PEP 561），下游 mypy --strict 才能分析 pytexlogs 而非报 import-untyped
 pytexlogs = ["py.typed"]
 
 [tool.setuptools.dynamic]
