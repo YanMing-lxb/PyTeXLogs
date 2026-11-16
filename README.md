@@ -1,6 +1,11 @@
 # PyTeXLogs
 
-PyTeXLogs v0.4.0 是 LaTeX/BibTeX/Biber/Minted/Asymptote/Makeindex 日志解析库。可嵌入任意 Python 工具链。
+PyTeXLogs v0.5.0 是 LaTeX/BibTeX/Biber/Minted/Asymptote/Makeindex 日志解析库。可嵌入任意 Python 工具链。
+
+> v0.5.0 新增：可执行建议（`hint_for_text` / `hint_for_entry`，缺宏包直接给
+> `tlmgr install` / `miktex packages install` 命令）、日志类型嗅探
+> （`sniff_bib_tool` / `sniff_index_tool` / `sniff_tex_engine` / `plan_default_steps`）、
+> `pytexlogs explain` 子命令、SARIF 规则与指纹、`--baseline/--severity/--jobname`。
 
 ## 安装
 
@@ -63,6 +68,12 @@ pytexlogs summary ./main.log --lang en
 
 # 批量导出 SARIF，配合 GitHub Actions 上传告警
 pytexlogs export --format sarif ./build -o out.sarif
+
+# 生成 shell 补全（bash/zsh/fish/powershell）
+pytexlogs --completion bash
+
+# 递归扫描一个仓库里的多个子项目（只进入含 .log/.tex 的目录）
+pytexlogs check ./projects --recursive
 ```
 
 ### 3.3 Entry Point 自定义 ChkTeX parser
@@ -105,6 +116,8 @@ print(f"自定义 parser 产出 {len(results[0].warnings)} 条 lint 警告")
 | `parse_log_file(path)` | 一行解析单个 .log / .blg / .ilg 等文件（按后缀自动猜 parser） |
 | `parse_log_text(text, engine="pdflatex")` | 一行解析字符串（captured_outputs / subprocess.stdout 场景） |
 | `parse_auxdir(jobname, auxdir, steps, captured_outputs)` | 一行扫描整个 LaTeX 辅助目录 |
+| `plan_default_steps(jobname, auxdir)` | 按实际产物规划解析步骤，并从 `.log` 头部识别 pdflatex/xelatex/lualatex |
+| `sniff_tex_engine(log_path)` | 单独判断引擎类型，认不出返回 `None` |
 | `filter_severity(entries, min_level=WARNING)` | 按严重度裁剪日志条目 |
 | `aggregate_stats(obj, group_by="category\|level\|parser")` | 聚合统计 → 直方图/报表数据源 |
 | `run_pipeline(...)` | 完整 pipeline：发现→解析→汇总→摘要→报告一体化（推荐） |

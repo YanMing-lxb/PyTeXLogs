@@ -192,7 +192,11 @@ class ProjectStateStore:
         """在锁内读-改-写，原子落盘；任何异常都不外抛。"""
         try:
             self.auxdir.mkdir(parents=True, exist_ok=True)
-            with self._locked():
+            with self._locked() as acquired:
+                if not acquired:
+                    # 拿不到锁就放弃本次写入：宁可丢一次更新，也不能无锁覆盖
+                    # 别人刚写好的键（0.4.x 里是“未获锁仍照常写”，锁形同虚设）。
+                    return False
                 state = self.load()
                 mutator(state)
                 state["schema_version"] = SCHEMA_VERSION
@@ -228,18 +232,18 @@ class ProjectStateStore:
             raise
 
     @contextmanager
-    def _locked(self) -> Iterator[None]:
+    def _locked(self) -> Iterator[bool]:
         """尽力而为的文件锁：占用则短暂轮询，超时则放弃写入（降级而非报错）。
 
-        状态文件丢一次更新只会让下一次编译多跑一轮，属于可接受降级；因此这里
-        不做阻塞等待，也不抛异常。
+        yielded 值为「是否真正持有锁」；调用方必须检查并据此决定是否写盘。
+        状态文件丢一次更新只会让下一次编译多跑一轮，属于可接受降级。
         """
         acquired = False
         try:
             acquired = self._try_acquire()
             if not acquired:
                 logger.debug("状态文件被其它进程占用，跳过本次写入: %s", self.lock_path)
-            yield
+            yield acquired
         finally:
             if acquired:
                 try:

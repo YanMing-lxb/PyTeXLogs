@@ -16,6 +16,84 @@ from ..core.models import (
 from ..version import __version__
 
 
+def _entry_rank(entry: Any) -> int:
+    """取条目的严重度序号（越小越严重），未知按 INFO。"""
+    level = getattr(entry, "level", LogLevel.INFO)
+    if hasattr(level, "severity"):
+        return int(level.severity)
+    value = str(getattr(level, "value", level))
+    try:
+        return int(LogLevel(value).severity)
+    except ValueError:
+        return int(LogLevel.INFO.severity)
+
+
+def _filter_flat(
+    flat: list[tuple[LogEntry, str, str, str]],
+    min_level: LogLevel | None,
+) -> list[tuple[LogEntry, str, str, str]]:
+    """按最低严重度过滤扁平条目。"""
+    if min_level is None:
+        return flat
+    threshold = int(min_level.severity)
+    return [item for item in flat if _entry_rank(item[0]) <= threshold]
+
+
+def filter_by_level(obj: Any, min_level: LogLevel | None) -> Any:
+    """按严重度过滤任意受支持输入；返回同类型对象（必要时做浅拷贝）。
+
+    报告对象会重建 ``tool_results`` 与 ``severity_counts``，保证导出的 JSON
+    与 ``--severity`` 的语义一致（0.4.x 里导出器忽略该参数，是个真实缺陷）。
+    """
+    if min_level is None or obj is None:
+        return obj
+
+    if isinstance(obj, ParsedPipelineReport):
+        report = dataclasses.replace(obj)
+        new_results: list[Any] = []
+        severity_counts: dict[str, dict[str, int]] = {}
+        for tr in obj.tool_results:
+            kept = [e for e in tr.entries if _entry_rank(e) <= int(min_level.severity)]
+            new_tr = dataclasses.replace(tr, entries=kept)
+            new_tr.stats = dict(tr.stats)
+            new_tr.stats["entries_count"] = len(kept)
+            new_results.append(new_tr)
+            cat = new_tr.category
+            bucket = severity_counts.setdefault(
+                cat, {"error": 0, "warning": 0, "typesetting": 0, "info": 0, "total": 0}
+            )
+            for e in kept:
+                lvl = str(getattr(e, "level", "info"))
+                if lvl in bucket:
+                    bucket[lvl] += 1
+                bucket["total"] += 1
+        report.tool_results = new_results
+        report.severity_counts = severity_counts
+        return report
+
+    if isinstance(obj, list):
+        filtered: list[Any] = []
+        for item in obj:
+            if isinstance(item, ToolResult):
+                kept = [e for e in item.entries if _entry_rank(e) <= int(min_level.severity)]
+                clone = dataclasses.replace(item, entries=kept)
+                clone.stats = dataclasses.replace(
+                    item.stats,
+                    entries_count=len(kept),
+                    stats=dict(item.stats.stats),
+                )
+                clone.stats.stats["entries_count"] = len(kept)
+                filtered.append(clone)
+            elif isinstance(item, LogEntry):
+                if _entry_rank(item) <= int(min_level.severity):
+                    filtered.append(item)
+            else:
+                filtered.append(item)
+        return filtered
+
+    return obj
+
+
 def _flatten_to_entries(
     obj: Any,
 ) -> list[tuple[LogEntry, str, str, str]]:
@@ -94,14 +172,23 @@ def report_to_dict(report: ParsedPipelineReport) -> dict[str, Any]:
 
 def to_json(
     obj: Any,
+    *,
+    min_level: LogLevel | None = None,
     **json_kwargs: Any,
 ) -> str:
-    """将 ParsedPipelineReport / list[ToolResult] / list[LogEntry] 序列化为 JSON 字符串。"""
+    """将 ParsedPipelineReport / list[ToolResult] / list[LogEntry] 序列化为 JSON 字符串。
+
+    Args:
+        min_level: 只导出严重度不低于该等级的条目（``None`` 表示不过滤）。
+    """
+    obj = filter_by_level(obj, min_level)
     data: dict[str, Any]
     if isinstance(obj, ParsedPipelineReport):
         data = report_to_dict(obj)
         data["__format__"] = "pytexlogs-json-v1"
         data["pytexlogs_version"] = __version__
+        # 明确区分「报告导出 schema」与状态文件 schema（两者含义不同，曾经同名混淆）
+        data["report_schema"] = 1
         data["meta"] = {
             "jobname": obj.jobname,
             "root_file": obj.root_file,
@@ -137,6 +224,10 @@ def to_json(
     else:
         data = {"input": str(obj), "__format__": "pytexlogs-json-v1", "pytexlogs_version": __version__}
 
-    kwargs: dict[str, Any] = {"ensure_ascii": False, "indent": 2}
+    kwargs: dict[str, Any] = {
+        "ensure_ascii": False,
+        "indent": 2,
+        "default": lambda o: o.value if isinstance(o, LogLevel) else str(o),
+    }
     kwargs.update(json_kwargs)
     return json.dumps(data, **kwargs)

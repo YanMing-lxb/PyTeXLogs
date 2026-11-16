@@ -71,7 +71,7 @@ line-ending = "lf"
 [[tool.uv.index]]
 name = "pypi"
 url = "https://pypi.tuna.tsinghua.edu.cn/simple/"
-publish-url = "https://pypi.org/project/pytexlogs"
+publish-url = "https://upload.pypi.org/legacy/"
 default = true
 
 [dependency-groups]

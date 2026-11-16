@@ -1,5 +1,45 @@
 # Changelog
 
+## v0.5.0 - 2026-11-16
+
+### 新增
+- **可执行建议（hints）**：新增 `pytexlogs/hints.py`。`Hint(text, commands, kind)` 把每条错误/警告映射为"人话解释 + 可直接复制的命令"：
+  - 缺宏包抓 ``File `x.sty' not found`` 与 `Package X Error:`，给出 `tlmgr install X` / `miktex packages install X` 两条命令；
+  - `hint_for_text` / `hint_for_entry` 支持 `jobname` / `root_file` 上下文，把 `biber <jobname>`、`xelatex <主文件>.tex` 替换成 `biber main`、`xelatex main.tex`；
+  - 未定义控制序列、`Overfull \\hbox`、缺字体、biber/bibtex 常见错误等均有对应建议；
+  - 匹配前做反斜杠归一化，日志里的 `\hbox` 与提示表里的 `\\hbox` 不再错配；
+  - 新增高频规则：`Unicode character ...`、未定义 `Citation`/`Reference`/`Environment`、找不到 `.bib`、`Missing character`、`Too many unprocessed floats`、`TeX capacity exceeded`、`No pages of output`、`Runaway argument`、`Missing $ inserted`、`Emergency stop`、`Package ... Error`；
+  - **修正误判**：不再把任何 `Package X Error:` 都当成"缺宏包 X"（fontspec 找不到字体时曾误报 `tlmgr install fontspec`）。
+  - **中英双语**：`hint_for_text` / `hint_for_entry` 新增 `language` 参数；`Hint.text_en` 覆盖全部内置规则，`--lang en` 下摘要与 `explain` 的建议正文都是英文，不再是中文。
+- **日志类型嗅探**：新增 `core/logkind.py`。`sniff_bib_tool()` 按 `.bcf` 优先判断 biber、再看日志头；`sniff_index_tool()` 区分 xindy/makeindex；`sniff_tex_engine()` 从 `.log` 头部识别 pdflatex/xelatex/lualatex；`plan_default_steps()` 按实际存在的 `.blg/.bcf/.ilg/.glg/.alg/.slg/.nlg/.pytxcode/*.asy/*.pygmented` 规划步骤，每份日志只归一个 step，并用真实引擎名作为首个 step。
+- **Shell 补全**：新增 `--completion bash|zsh|fish|powershell`，选项从 argparse 自动提取，输出纯文本脚本后退出，不混入摘要。
+- **递归目录扫描**：新增 `--recursive`，批量检查时只进入真正含 `.log/.tex` 的子目录，支持一个仓库多个子项目。
+- **报告与过滤**：`write_report_file()`（`write_report` 保留为兼容别名并 `DeprecationWarning`）；`language` / `summary_max_entries` 参数；`--jobname`、`--severity` 同时作用于 text/json/csv/sarif；`--baseline` 只保留新增/变化条目；`--max-entries`、`--no-hints`、`--open-all`。
+- **`explain` 子命令**：对单条日志/单条消息给出归类与建议，不生成整篇报告。
+- **SARIF 升级**：`tool.driver.rules`、`partialFingerprints`、相对路径 + 正斜杠 + `quote`，可直接被 GitHub Code Scanning 消费；非 error/warning 映射为 `note`。
+
+### 修复
+- **`sniff_index_tool` 回退永远判成 xindy**：`Path.glob()` 返回生成器，`if parent.glob("*.xdy")` 恒为真；改为 `any(...)`，只有真的存在 `.xdy` 才回退 xindy。
+- **缺图片被误判成缺宏包**：`detect_missing_package` 只认 `.sty/.cls/.def/.cfg/.clo/.ldf`；`fig.png` / `refs.bib` 分别给出 `missing_graphic` / `missing_bib` 建议，不再输出 `tlmgr install fig.png`。
+- **Windows 编辑器路径被 `shlex` 吃掉反斜杠**：`shlex_split` 在 Windows 使用 `posix=False`，`custom:` 也走同一分词逻辑。
+- **本地化条目没有 hint**：LaTeX parser 把引用/交叉引用条目翻译成“找不到 citation/reference `key`”，hint 现在同时匹配英文原文和本地化文本。
+- **baseline / SARIF 行号漂移误报**：baseline 去重键与 SARIF `partialFingerprints` 不再包含行号，正文插入几行不会把旧问题当成新增告警；行号仍保留在 `region.startLine` 和展示中。
+- **`explain` 无上下文**：`pytexlogs explain ... --jobname main --root-file main.tex` 现在会把建议里的占位符替换成真实命令。
+- **报告写盘 100% 失败**：`core/report.py` 误写 `from .exporters`（应为 `..exporters`），异常被吞后一直表现为"没有报告"。
+- **状态锁形同虚设**：`core/state.py::_mutate` 未获锁时仍然写盘；现在直接返回 `False`，不写。
+- **JSON/CSV 列表输入崩溃**：`json.dumps(default=...)` 处理 `LogLevel` 枚举；CSV 换行压成空格、列序固定。
+- **同一条警告打印两遍**：`print_summary(stream=...)` 支持 CLI 捕获，不再"先流式打一遍、再汇总打一遍"。
+
+### 变更
+- 目录模式 `run_pipeline(..., print_terminal=False)`；无 `.tex` 时用最大 `.log` 的 stem 推断 jobname；`_default_lang()` 读 `PYTEXLOGS_LANG`/`LANG`/locale。
+- `print_summary` 支持分组截断（"… 还有 N 条"）与 `↳ 建议` 行。
+- 公共 API 新增导出：`Hint`、`detect_missing_package`、`hint_for_entry`、`hint_for_text`、`filter_by_level`、`plan_default_steps`、`sniff_bib_tool`、`sniff_index_tool`。
+
+### 测试
+- 新增 `tests/test_050_features.py`（21 例）、`tests/test_hints_deep.py`（14 例）与 `tests/test_completion.py`（6 例）：报告落盘无 `.tmp`、旧 kwarg 兼容、步骤不重复、index 嗅探（含无 `.xdy` 回退）、引擎嗅探、单反斜杠匹配、缺宏包命令、缺图片/缺 bib 分类、hint 上下文替换、中英文 hint、多格式 severity 过滤、SARIF URI/指纹、baseline 行号漂移、递归目录扫描、全局选项位置、同条警告只打一次、锁失败不写盘、报告失败无 `.tmp`、补全脚本；以及 Unicode/引用/环境/缺 bib/容量/致命错误等新建议。
+- 全量：**162 passed, 1 skipped**。
+
+
 ## v0.4.0 - 2026-10-18
 
 ### 破坏性变更

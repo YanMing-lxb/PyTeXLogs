@@ -1,62 +1,101 @@
-"""SARIF 导出模块：将报告/条目导出为 SARIF v2.1.0 格式。"""
+"""SARIF 导出模块：将报告/条目导出为 SARIF v2.1.0 格式。
+
+与 0.4.x 的差异：
+- 支持 ``min_level``（与 ``--severity`` 对齐）；
+- ``artifactLocation.uri`` 使用相对路径 + 正斜杠 + 百分号编码（原实现直接塞入
+  Windows 反斜杠路径，不是合法 URI）；
+- 补齐 ``tool.driver.rules``、``partialFingerprints``，让 GitHub Code Scanning
+  能稳定去重；
+- 非 error/warning 的条目降级为 ``note``（``none`` 会被部分平台直接丢弃）。
+"""
+
+from __future__ import annotations
 
 import hashlib
 import os
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from ..core.models import LogEntry, LogLevel
 from ..version import __version__
-from .json_exporter import _flatten_to_entries
+from .json_exporter import _flatten_to_entries, filter_by_level
+
+_LEVEL_TO_SARIF = {
+    LogLevel.ERROR: "error",
+    LogLevel.WARNING: "warning",
+    LogLevel.INFO: "note",
+    LogLevel.TYPESET: "note",
+    LogLevel.FONT: "note",
+    LogLevel.GRAPHIC: "note",
+    LogLevel.PAGE: "note",
+}
 
 
-def to_sarif(obj: Any) -> dict[str, Any]:
-    """将三种输入导出为 SARIF v2.1.0 最小子集 dict。"""
+def _as_uri(path_str: str, cwd: Path) -> str:
+    """把文件路径转成 SARIF 可接受的 URI（相对、正斜杠、已编码）。"""
+    if not path_str:
+        return "unknown.tex"
+    p = Path(path_str)
+    if p.is_absolute():
+        try:
+            p = Path(os.path.relpath(p, cwd))
+        except ValueError:
+            pass
+    return quote(p.as_posix(), safe="/:._~-")
+
+
+def to_sarif(obj: Any, *, min_level: LogLevel | None = None) -> dict[str, Any]:
+    """将三种输入导出为 SARIF v2.1.0 子集 dict。"""
+    obj = filter_by_level(obj, min_level)
     flat = _flatten_to_entries(obj)
     cwd = Path.cwd()
 
     sarif_results: list[dict[str, Any]] = []
+    rules: dict[str, dict[str, Any]] = {}
 
     for entry, _category, _tool, _sp in flat:
         if not isinstance(entry, LogEntry):
             continue
 
-        rule_id = f"{entry.level.value}-{hashlib.sha1((entry.text or '').encode('utf-8')).hexdigest()[:8]}"
+        rule_id = f"pytexlogs/{entry.level.value}"
+        text = entry.text or "(empty)"
+        if rule_id not in rules:
+            rules[rule_id] = {
+                "id": rule_id,
+                "name": entry.level.value,
+                "shortDescription": {"text": f"PyTeXLogs {entry.level.value} entry"},
+                "defaultConfiguration": {"level": _LEVEL_TO_SARIF.get(entry.level, "note")},
+            }
 
-        if entry.level == LogLevel.ERROR:
-            sarif_level = "error"
-        elif entry.level == LogLevel.WARNING:
-            sarif_level = "warning"
-        elif entry.level == LogLevel.INFO:
-            sarif_level = "note"
-        else:
-            sarif_level = "none"
-
-        file_uri = entry.file or "unknown.tex"
-        if file_uri and Path(file_uri).is_absolute():
-            try:
-                file_uri = os.path.relpath(file_uri, str(cwd))
-            except ValueError:
-                pass
-
+        file_uri = _as_uri(entry.file or "", cwd)
         start_line = max(1, entry.line or 1)
+        # 指纹不含行号：同一文件、同一条消息在正文插入几行后仍应被平台
+        # 视为同一个问题，而不是新增告警。行号只放在 region.startLine。
+        fingerprint = hashlib.sha1(
+            f"{file_uri}|{' '.join(text.split())}".encode()
+        ).hexdigest()
 
         sarif_results.append({
             "ruleId": rule_id,
-            "level": sarif_level,
-            "message": {"text": entry.text or "(empty)"},
+            "level": _LEVEL_TO_SARIF.get(entry.level, "note"),
+            "message": {"text": text},
             "locations": [
                 {
                     "physicalLocation": {
-                        "artifactLocation": {"uri": file_uri or "unknown.tex"},
+                        "artifactLocation": {"uri": file_uri},
                         "region": {"startLine": start_line},
                     }
                 }
             ],
+            "partialFingerprints": {"pytexlogs/v1": fingerprint},
         })
 
     return {
-        "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+        "$schema": (
+            "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/"
+            "Schemata/sarif-schema-2.1.0.json"
+        ),
         "version": "2.1.0",
         "runs": [
             {
@@ -65,6 +104,7 @@ def to_sarif(obj: Any) -> dict[str, Any]:
                         "name": "pytexlogs",
                         "version": __version__,
                         "informationUri": "https://pypi.org/project/pytexlogs",
+                        "rules": list(rules.values()),
                     }
                 },
                 "results": sarif_results,

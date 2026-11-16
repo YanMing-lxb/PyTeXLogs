@@ -110,8 +110,16 @@ def print_summary(
     language: str | None = None,
     translate_fn: Callable[[str], str] | None = None,
     stream: IO[str] | None = None,
+    max_entries: int | None = None,
+    show_hints: bool = False,
 ) -> str:
-    """按类别/等级分组打印日志摘要并返回拼接字符串。"""
+    """按类别/等级分组打印日志摘要并返回拼接字符串。
+
+    Args:
+        max_entries: 每个「等级 × 类别」分组最多展示的条目数；``None`` 表示全量。
+            超出部分折叠为一行「还有 N 条」，避免几十条 overfull 淹没真正的错误。
+        show_hints: 是否为 ERROR/WARNING 条目追加一行可执行建议（见 :mod:`pytexlogs.hints`）。
+    """
     prev_lang: str | None = None
     prev_tfn: Callable[[str], str] | None = None
     if language is not None or translate_fn is not None:
@@ -177,7 +185,20 @@ def print_summary(
                 else:
                     _RICH_CONSOLE.print(cat_markup)
 
+                shown = 0
                 for entry in entries:
+                    if max_entries is not None and shown >= max_entries:
+                        hidden = len(entries) - shown
+                        more_plain = f"  … 还有 {hidden} 条（用 --format json 导出查看全部）"
+                        output_lines.append(more_plain)
+                        if use_logger:
+                            _LEVEL_LOGGER[level](more_plain)
+                        elif stream is not None:
+                            _out(f"[dim]{more_plain}[/]", more_plain)
+                        else:
+                            _RICH_CONSOLE.print(f"[dim]{more_plain}[/]")
+                        break
+                    shown += 1
                     formatted_plain = _format_entry(entry)
                     symbol_markup = _LEVEL_SYMBOL_MARKUP[level]
                     entry_markup = f"{symbol_markup} {formatted_plain}"
@@ -194,6 +215,31 @@ def print_summary(
                         _out(entry_markup, entry_plain_for_logger)
                     else:
                         _RICH_CONSOLE.print(entry_markup)
+
+                    if show_hints and level in ("error", "warning"):
+                        from ..hints import hint_for_entry
+
+                        hint = hint_for_entry(entry, language=_formatter._LANG)
+                        if hint is not None:
+                            hint_plain = f"      ↳ {hint.text}"
+                            output_lines.append(hint_plain)
+                            hint_markup = f"[dim]      ↳ {hint.text}[/]"
+                            if use_logger:
+                                logger.info(hint_plain)
+                            elif stream is not None:
+                                _out(hint_markup, hint_plain)
+                            else:
+                                _RICH_CONSOLE.print(hint_markup)
+                            if hint.commands:
+                                cmd_plain = "       " + " | ".join(hint.commands)
+                                output_lines.append(cmd_plain)
+                                cmd_markup = f"[dim cyan]{cmd_plain}[/]"
+                                if use_logger:
+                                    logger.info(cmd_plain)
+                                elif stream is not None:
+                                    _out(cmd_markup, cmd_plain)
+                                else:
+                                    _RICH_CONSOLE.print(cmd_markup)
 
                 cat_bottom_sep_markup = f"[dim]{'-' * SUMMARY_TOTAL_LEN}[/]"
                 cat_bottom_sep_plain = "-" * SUMMARY_TOTAL_LEN

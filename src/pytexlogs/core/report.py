@@ -105,14 +105,14 @@ def dict_to_report(d: dict[str, Any]) -> ParsedPipelineReport:
 
 
 def write_report(report: ParsedPipelineReport, path: str | Path) -> Path | None:
-    """原子式写入 JSON 报告到 path，失败返回 None。"""
-    from .exporters.json_exporter import report_to_dict
+    """原子式写入 JSON 报告到 path，失败返回 None（不留下临时文件）。"""
+    from ..exporters.json_exporter import report_to_dict
 
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
     try:
-        with open(tmp, "w", encoding="utf-8") as f:
+        with open(tmp, "w", encoding="utf-8", newline="\n") as f:
             json.dump(
                 report_to_dict(report),
                 f,
@@ -121,9 +121,16 @@ def write_report(report: ParsedPipelineReport, path: str | Path) -> Path | None:
                 sort_keys=True,
                 default=str,
             )
+            f.flush()
+            os.fsync(f.fileno())
         os.replace(tmp, path)
-    except OSError:
-        logger.warning("报告写入失败: %s", exc_info=True)
+    except Exception:
+        # 任何失败都要清掉半截临时文件；报告本身是可选产物，不能污染项目目录
+        logger.warning("报告写入失败: %s", path, exc_info=True)
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
         return None
     return path
 

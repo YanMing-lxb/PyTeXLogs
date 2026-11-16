@@ -4,26 +4,22 @@ import csv
 from io import StringIO
 from typing import Any
 
-from ..core.models import LogEntry
-from .json_exporter import _flatten_to_entries
+from ..core.models import LogEntry, LogLevel
+from .json_exporter import _flatten_to_entries, filter_by_level
 
 
 def _collect_hints() -> dict[str, str]:
-    """合并 LATEX_LOG_HINTS / BIBTEX_ERROR_HINTS / BIBER_WARNING_HINTS 为一个大字典。"""
-    from ..parsers.biber import BIBER_WARNING_HINTS
-    from ..parsers.bibtex import BIBTEX_ERROR_HINTS
-    from ..parsers.latex import LATEX_LOG_HINTS
+    """兼容旧接口：合并三张提示表（实际实现已迁到 :mod:`pytexlogs.hints`）。"""
+    from ..hints import collect_hints
 
-    merged: dict[str, str] = {}
-    merged.update(LATEX_LOG_HINTS)
-    merged.update(BIBTEX_ERROR_HINTS)
-    merged.update(BIBER_WARNING_HINTS)
-    return merged
+    return collect_hints()
 
 
-def to_csv(obj: Any) -> str:
+def to_csv(obj: Any, *, min_level: LogLevel | None = None) -> str:
     """将三种输入导出为 CSV 字符串；表头严格为 file,line,level,category,tool,text,hint,source_path。"""
-    hints = _collect_hints()
+    from ..hints import hint_for_text
+
+    obj = filter_by_level(obj, min_level)
     flat = _flatten_to_entries(obj)
 
     buf = StringIO()
@@ -33,11 +29,8 @@ def to_csv(obj: Any) -> str:
     for entry, category, tool, source_path in flat:
         if not isinstance(entry, LogEntry):
             continue
-        hint_text = ""
-        for key, value in hints.items():
-            if key in entry.text:
-                hint_text = value
-                break
+        hint = hint_for_text(entry.text or "")
+        hint_text = hint.text if hint else ""
         line_val = entry.line if entry.line else ""
         level_val = entry.level.value if hasattr(entry.level, "value") else str(entry.level)
         writer.writerow([
@@ -46,7 +39,7 @@ def to_csv(obj: Any) -> str:
             level_val,
             category or "",
             tool or "",
-            entry.text or "",
+            " ".join((entry.text or "").splitlines()),
             hint_text,
             source_path or "",
         ])

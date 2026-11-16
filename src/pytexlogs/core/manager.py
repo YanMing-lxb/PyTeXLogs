@@ -97,21 +97,13 @@ class LogParserManager:
     ) -> list[ToolResult]:
         """按 steps 顺序发现并解析日志，返回 list[ToolResult]。"""
         if steps is None:
-            steps = [
-                "pdflatex",
-                "bibtex",
-                "biber",
-                "makeindex",
-                "xindy",
-                "makeglossaries",
-                "nomencl",
-                "pythontex",
-                "minted",
-                "asymptote",
-            ]
+            from .logkind import plan_default_steps
+
+            steps = plan_default_steps(jobname, auxdir)
         captured_outputs = captured_outputs or {}
         results: list[ToolResult] = []
         seen: set[tuple[str, str]] = set()
+        consumed_paths: dict[Path, str] = {}
 
         for step_name in steps:
             parser_cls, spec = self._resolve_parser(step_name)
@@ -142,6 +134,17 @@ class LogParserManager:
                     log_path = self.discover_log_path(parser_cls, jobname, auxdir)
                 if log_path is None:
                     continue
+                try:
+                    resolved_key = str(log_path.resolve())
+                except OSError:
+                    resolved_key = str(log_path)
+                if resolved_key in consumed_paths:
+                    logger.debug(
+                        "step=%s 的日志 %s 已被 step=%s 消费，跳过",
+                        step_name, log_path, consumed_paths[resolved_key],
+                    )
+                    continue
+                consumed_paths[resolved_key] = step_name
                 key = str(log_path)
                 if (parser_cls_name, key) in seen:
                     continue

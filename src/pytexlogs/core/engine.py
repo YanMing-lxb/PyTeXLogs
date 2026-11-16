@@ -4,6 +4,7 @@ import logging
 import re
 import tempfile
 import time
+import warnings
 from collections import Counter
 from collections.abc import Callable
 from copy import deepcopy
@@ -12,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from ..display.printer import print_summary
+from .logkind import plan_default_steps
 from .manager import LogParserManager
 from .models import (
     ConfigIgnoredReport,
@@ -37,19 +39,22 @@ def run_pipeline(
     ignore_patterns: list[str] | None = None,
     project_config: dict[str, Any] | None = None,
     root_file: str | None = None,
-    write_report: bool = False,
+    write_report_file: bool = False,
     report_path: str | Path | None = None,
     print_terminal: bool | None = None,
     ref_tracker_translate_fn: Callable[[str], str] | None = None,
     pytexmk_version: str | None = None,
     text_len_fn: Callable[[str], int] | None = None,
     *,
+    language: str | None = None,
+    summary_max_entries: int | None = None,
     tex_engine: str | None = None,
     tex_output: str | None = None,
     bibtex_output: str | None = None,
     biber_output: str | None = None,
     other_engine_outputs: dict[str, str] | None = None,
     quiet: bool | None = None,
+    write_report: bool | None = None,
 ) -> ParsedPipelineReport:
     """入口函数，统一执行日志发现 → 解析 → 汇总 → 终端打印 → 报告写盘 → 返回结构化报告。
 
@@ -57,8 +62,19 @@ def run_pipeline(
       - 新签名（推荐）：run_pipeline(jobname, auxdir, captured_outputs={...}, steps=[...])
       - 旧兼容签名：run_pipeline(tex_engine='pdflatex', tex_output='', bibtex_output='',
                                     biber_output='', other_engine_outputs={}, quiet=True)
+
+    参数 ``write_report`` 是 0.4.x 的旧名字，0.5 起更名为 ``write_report_file``；
+    旧名字仍可传入（会转成新参数并发 DeprecationWarning），避免下游静默失效。
     """
     _Path = Path
+
+    if write_report is not None:
+        warnings.warn(
+            "run_pipeline(write_report=...) 已更名为 write_report_file=...，旧名将在 0.6 移除",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        write_report_file = write_report_file or bool(write_report)
 
     if tex_engine is not None or tex_output is not None or bibtex_output is not None \
             or biber_output is not None or other_engine_outputs is not None:
@@ -100,8 +116,8 @@ def run_pipeline(
     try:
         effective_pytexmk_version = pytexmk_version or 'unknown'
         if steps is None:
-            steps = ['pdflatex', 'bibtex', 'biber', 'makeindex', 'xindy', 'makeglossaries',
-                     'nomencl', 'pythontex', 'minted', 'asymptote']
+            # 按实际存在的日志文件规划，避免同一份 .blg/.ilg/.log 被多个 parser 重复消费
+            steps = plan_default_steps(jobname, auxdir)
         if print_terminal is None:
             print_terminal = True
         return _run_pipeline_impl(
@@ -112,12 +128,14 @@ def run_pipeline(
             ignore_patterns=ignore_patterns,
             project_config=project_config,
             root_file=root_file,
-            write_report=write_report,
+            write_report_file=write_report_file,
             report_path=report_path,
             print_terminal=print_terminal,
             ref_tracker_translate_fn=ref_tracker_translate_fn,
             pytexmk_version=effective_pytexmk_version,
             text_len_fn=text_len_fn,
+            language=language,
+            summary_max_entries=summary_max_entries,
         )
     finally:
         if _td is not None:
@@ -133,12 +151,14 @@ def _run_pipeline_impl(
     ignore_patterns: list[str] | None,
     project_config: dict[str, Any] | None,
     root_file: str | None,
-    write_report: bool,
+    write_report_file: bool,
     report_path: str | Path | None,
     print_terminal: bool,
     ref_tracker_translate_fn: Callable[[str], str] | None,
     pytexmk_version: str,
     text_len_fn: Callable[[str], int] | None,
+    language: str | None = None,
+    summary_max_entries: int | None = None,
 ) -> ParsedPipelineReport:
 
     auxdir_path = Path(auxdir)
@@ -154,6 +174,9 @@ def _run_pipeline_impl(
     skipped_steps: list[str] = []
     tool_reports: list[ToolResultReport] = []
     original_entries_for_summary: list[Any] = []
+    # 已消费的日志文件：同一份 .blg/.ilg/.log 只允许一个 step 解析，
+    # 防止自定义 steps 列表里同时出现 bibtex/biber 时统计翻倍。
+    consumed_paths: dict[Path, str] = {}
 
     for step in steps:
         spec = manager.registry.lookup(step)
@@ -170,6 +193,18 @@ def _run_pipeline_impl(
         else:
             log_path = spec.default_discover(jobname, auxdir_path)
             if log_path is not None:
+                try:
+                    resolved = log_path.resolve()
+                except OSError:
+                    resolved = log_path
+                if resolved in consumed_paths:
+                    logger.debug(
+                        "step %s 的日志 %s 已被 step %s 消费，跳过以避免重复解析",
+                        step, log_path, consumed_paths[resolved],
+                    )
+                    skipped_steps.append(step)
+                    continue
+                consumed_paths[resolved] = step
                 try:
                     log_text = spec.parser_cls(root_file=root_file)._read_log_text(log_path)
                 except Exception:
@@ -407,12 +442,20 @@ def _run_pipeline_impl(
             ref_unchanged=len(ref_unchanged),
             ref_key_counts=ref_key_counts,
             text_len_fn=text_len_fn,
+            language=language,
+            max_entries=summary_max_entries,
         )
 
-    if write_report:
+    if write_report_file:
+        from .report import write_report as _write_report
+
         default_report_path = auxdir_path / f"{jobname}.pytexmk-report.json"
-        actual_path = report_path or default_report_path
-        result_path = write_report(report, actual_path)
+        actual_path = Path(report_path) if report_path else default_report_path
+        try:
+            result_path = _write_report(report, actual_path)
+        except Exception:  # 报告写盘失败不能影响编译主流程
+            logger.warning("报告写入失败: %s", actual_path, exc_info=True)
+            result_path = None
         if result_path is not None:
             report.custom_fields['_report_path'] = str(result_path)
 

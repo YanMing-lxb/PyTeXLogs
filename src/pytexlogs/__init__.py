@@ -13,6 +13,12 @@ from collections.abc import Callable
 from typing import Any
 
 from .core.engine import run_pipeline as _run_pipeline_raw
+from .core.logkind import (
+    plan_default_steps,
+    sniff_bib_tool,
+    sniff_index_tool,
+    sniff_tex_engine,
+)
 from .core.manager import LogParserManager
 from .core.models import (
     BaseLogParser,
@@ -51,6 +57,8 @@ from .easy import (
     parse_log_text,
 )
 from .exporters import to_csv, to_json, to_sarif
+from .exporters.json_exporter import filter_by_level
+from .hints import Hint, detect_missing_package, hint_for_entry, hint_for_text
 from .integration_demo import run_demo
 from .parsers.asymptote import AsymptoteParser
 from .parsers.biber import BIBER_WARNING_HINTS, BiberParser
@@ -62,6 +70,7 @@ from .parsers.minted import MintedParser
 from .parsers.nomencl import NomenclParser
 from .parsers.pythontex import PythontexParser
 from .parsers.xindy import XindyParser
+from .version import __version__
 
 
 def _deprecating_alias(wrapped: Callable[..., Any], old_name: str, new_name: str) -> Callable[..., Any]:
@@ -88,6 +97,7 @@ Registry = LogParserRegistry
 Report = ParsedPipelineReport
 
 __all__ = [
+    "__version__",
     "BIBER_WARNING_HINTS",
     "BIBTEX_ERROR_HINTS",
     "CATEGORY_LABEL",
@@ -101,6 +111,7 @@ __all__ = [
     "BiberParser",
     "BibtexParser",
     "GlossariesParser",
+    "Hint",
     "LatexLogParser",
     "LogEntry",
     "LogLevel",
@@ -123,20 +134,28 @@ __all__ = [
     "ToolResultReport",
     "ToolResultStats",
     "XindyParser",
+    "detect_missing_package",
+    "filter_by_level",
     "filter_severity",
     "format_editor_jumps",
+    "hint_for_entry",
+    "hint_for_text",
     "load_entry_points",
     "load_report",
     "log_editor_jumps",
     "parse_auxdir",
     "parse_log_file",
     "parse_log_text",
+    "plan_default_steps",
     "print_summary",
     "run_demo",
     "run_log_pipeline",
     "run_pipeline",
     "set_summary_language",
     "show_log_entries",
+    "sniff_bib_tool",
+    "sniff_index_tool",
+    "sniff_tex_engine",
     "to_csv",
     "to_json",
     "to_sarif",

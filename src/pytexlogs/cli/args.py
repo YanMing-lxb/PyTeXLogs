@@ -1,4 +1,14 @@
-"""CLI 参数解析与编辑器检测工具。"""
+"""CLI 参数解析与编辑器检测工具。
+
+0.5.0 起的关键修正：
+- 子命令的公共参数使用 ``argparse.SUPPRESS``，避免「写在子命令之前的全局选项
+  被子命令默认值覆盖」（argparse 的经典坑）；
+- 新增 ``--jobname`` / ``--fail-on`` / ``--max-entries`` / ``--baseline`` /
+  ``--open-all``，并加入 ``explain`` 子命令；
+- ``--dry-run`` 明确只影响 ``--open``。
+"""
+
+from __future__ import annotations
 
 import argparse
 import os
@@ -31,9 +41,14 @@ _SEVERITY_LEVEL: dict[str, LogLevel] = {
 
 
 def shlex_split(s: str) -> list[str]:
-    """安全的 shell 风格分词：优先 POSIX 模式，失败回退空格切分。"""
+    """安全的 shell 风格分词：优先 POSIX 模式，Windows 保留反斜杠路径。
+
+    ``posix=True`` 会把 ``C:\\Program Files\\...`` 里的反斜杠当转义符，
+    在 Windows 上启动编辑器会得到 ``C:Program Files...``。因此按平台选择
+    ``posix``；解析失败再回退空格切分。
+    """
     try:
-        return _shlex.split(s, posix=True)
+        return _shlex.split(s, posix=os.name != "nt")
     except Exception:
         return s.split()
 
@@ -41,7 +56,7 @@ def shlex_split(s: str) -> list[str]:
 def _detect_editor(custom: str | None) -> list[str]:
     """检测可用的编辑器命令行参数列表。"""
     if custom and custom.startswith("custom:"):
-        return custom[len("custom:"):].split()
+        return shlex_split(custom[len("custom:"):])
     if custom and custom != "auto":
         return [custom]
     for env in ("VISUAL", "EDITOR"):
@@ -111,18 +126,19 @@ def _filter_by_level(entries: list[Any], min_level: LogLevel) -> list[Any]:
     级别顺序：error(0) < warning(1) < typesetting(2) < font(3) < graphic(4) < page(5) < info(6)。
     """
     result: list[Any] = []
-    level_order = {"error": 0, "warning": 1, "typesetting": 2, "font": 3, "graphic": 4, "page": 5, "info": 6}
+    level_order = {
+        "error": 0, "warning": 1, "typesetting": 2, "font": 3,
+        "graphic": 4, "page": 5, "info": 6,
+    }
     min_val_int = level_order.get(str(min_level.value), 7)
     for e in entries:
         entry_level = getattr(e, "level", None)
         if entry_level is None:
             continue
-        # Handle LogLevel enum
         if hasattr(entry_level, "value"):
             entry_val_int = level_order.get(str(entry_level.value), 7)
             if entry_val_int <= min_val_int:
                 result.append(e)
-        # Handle string level (from ReportEntry)
         elif isinstance(entry_level, str):
             entry_val_int = level_order.get(entry_level, 7)
             if entry_val_int <= min_val_int:
@@ -130,61 +146,137 @@ def _filter_by_level(entries: list[Any], min_level: LogLevel) -> list[Any]:
     return result
 
 
-def _build_common_args(parser: argparse.ArgumentParser) -> None:
-    """添加非 --version 的公共参数（供顶层 + 各子 parser parents 共享）。"""
-    parser.add_argument("--lang", choices=("en", "zh"), default="zh", help="摘要语言（zh / en），默认 zh")
+def _add_common_args(parser: argparse.ArgumentParser, *, suppress: bool) -> None:
+    """添加公共参数；``suppress=True`` 时不给默认值（供子 parser 共用，避免覆盖）。"""
+    default = argparse.SUPPRESS if suppress else None
     parser.add_argument(
-        "--format",
-        dest="fmt",
-        choices=("text", "json", "csv", "sarif"),
-        default="text",
+        "--lang", choices=("en", "zh"), default=(argparse.SUPPRESS if suppress else "zh"),
+        help="摘要语言（zh / en），默认 zh",
+    )
+    parser.add_argument(
+        "--format", dest="fmt", choices=("text", "json", "csv", "sarif"),
+        default=(argparse.SUPPRESS if suppress else "text"),
         help="输出格式：text/json/csv/sarif（默认 text）",
     )
-    parser.add_argument("--output", "-o", type=Path, default=None, help="输出到文件（默认 stdout）")
     parser.add_argument(
-        "--severity",
-        choices=("error", "warning", "info", "all", "error+warning"),
-        default="error+warning",
+        "--output", "-o", type=Path,
+        default=(argparse.SUPPRESS if suppress else None),
+        help="输出到文件（默认 stdout）",
+    )
+    parser.add_argument(
+        "--severity", choices=("error", "warning", "info", "all", "error+warning"),
+        default=(argparse.SUPPRESS if suppress else "error+warning"),
         help="仅展示/导出 ≥ 该严重度的条目（默认 error+warning）",
     )
-    parser.add_argument("--root-file", type=Path, default=None, help="传给 parser 的主 .tex 路径（可选）")
-    parser.add_argument("--open", dest="do_open", action="store_true", help="尝试对 ERROR 条目打开编辑器跳转")
+    parser.add_argument(
+        "--root-file", type=Path,
+        default=(argparse.SUPPRESS if suppress else None),
+        help="传给 parser 的主 .tex 路径（可选）",
+    )
+    parser.add_argument(
+        "--jobname",
+        default=default,
+        help="目录模式的 jobname（默认取目录里首个带 \\documentclass 的 .tex）",
+    )
+    parser.add_argument(
+        "--open", dest="do_open", action="store_true",
+        default=(argparse.SUPPRESS if suppress else False),
+        help="尝试对 ERROR 条目打开编辑器跳转（默认只开第一条）",
+    )
+    parser.add_argument(
+        "--open-all", dest="open_all", action="store_true",
+        default=(argparse.SUPPRESS if suppress else False),
+        help="--open 时打开所有 ERROR 条目（默认只开第一条）",
+    )
     parser.add_argument(
         "--editor",
-        default="auto",
+        default=(argparse.SUPPRESS if suppress else "auto"),
         help='编辑器：auto | code | subl | nvim | gvim | custom:"code --goto %%f:%%l"',
     )
-    parser.add_argument("--dry-run", action="store_true", help="仅打印 --open 命令，不真的启动进程")
+    parser.add_argument(
+        "--dry-run", action="store_true",
+        default=(argparse.SUPPRESS if suppress else False),
+        help="仅打印 --open 将要执行的命令，不真的启动进程",
+    )
+    parser.add_argument(
+        "--max-entries", type=int,
+        default=(argparse.SUPPRESS if suppress else None),
+        help="文本摘要每个分组最多展示 N 条（默认 10，0 表示不限制）",
+    )
+    parser.add_argument(
+        "--no-hints", dest="no_hints", action="store_true",
+        default=(argparse.SUPPRESS if suppress else False),
+        help="不在摘要里追加可执行建议",
+    )
+    parser.add_argument(
+        "--baseline", type=Path,
+        default=(argparse.SUPPRESS if suppress else None),
+        help="上次的报告 JSON；只输出本次新增/变化的条目",
+    )
+    parser.add_argument(
+        "--recursive", action="store_true",
+        default=(argparse.SUPPRESS if suppress else False),
+        help="目录模式递归扫描子目录（只处理含 .log/.tex 的目录）",
+    )
+
+
+def _build_common_args(parser: argparse.ArgumentParser) -> None:
+    """添加非 --version 的公共参数（顶层带默认值）。"""
+    _add_common_args(parser, suppress=False)
 
 
 def build_parser() -> argparse.ArgumentParser:
     """构建完整的 CLI 参数解析器。"""
     parser = argparse.ArgumentParser(
         prog="pytexlogs",
-        description="PyTeXLogs: 11+ LaTeX 工具日志解析 CLI（零第三方硬依赖）。",
+        description="PyTeXLogs: LaTeX 工具日志解析 CLI（零第三方硬依赖）。",
+        epilog=(
+            "示例：pytexlogs main.log | pytexlogs main.log --open | "
+            "pytexlogs Build/ --jobname main --format sarif | pytexlogs explain 'Missing character'\n"
+            "退出码：0=无错误；1=check 命中错误（或 --fail-on warning 时命中警告）；2=参数/运行异常。"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--version", action="version", version=f"pytexlogs {__version__}")
+    parser.add_argument(
+        "--completion",
+        choices=("bash", "zsh", "fish", "powershell"),
+        help="输出指定 shell 的补全脚本后退出（bash/zsh/fish/powershell）",
+    )
     _build_common_args(parser)
     common_parent = argparse.ArgumentParser(add_help=False)
-    _build_common_args(common_parent)
+    _add_common_args(common_parent, suppress=True)
     sub = parser.add_subparsers(dest="subcmd", metavar="<subcmd>")
 
     def _add_positional(subp: argparse.ArgumentParser) -> None:
         subp.add_argument(
             "paths",
             nargs="*",
-            help="日志文件 / aux 目录（文件会直接 parse_log_file；目录会作为 auxdir 做 run() 全量解析）",
+            help="日志文件 / aux 目录（文件会直接 parse_log_file；目录会作为 auxdir 做全量解析）",
         )
 
-    p_check = sub.add_parser("check", help="检查日志，发现 ERROR 则返回 exitcode=1", parents=[common_parent])
+    p_check = sub.add_parser(
+        "check", help="检查日志，发现 ERROR 则返回 exitcode=1", parents=[common_parent]
+    )
     _add_positional(p_check)
-    p_summary = sub.add_parser("summary", help="仅打印摘要（不返回 error exitcode）", parents=[common_parent])
+    p_check.add_argument(
+        "--fail-on", choices=("error", "warning"),
+        default=argparse.SUPPRESS,
+        help="命中所选严重度时返回 1（默认 error）",
+    )
+    p_summary = sub.add_parser(
+        "summary", help="仅打印摘要（不返回 error exitcode）", parents=[common_parent]
+    )
     _add_positional(p_summary)
     p_export = sub.add_parser(
-        "export",
-        help="导出 JSON/CSV/SARIF（默认 stdout，--format 覆盖）",
+        "export", help="导出 JSON/CSV/SARIF（默认 stdout，--format 覆盖）",
         parents=[common_parent],
     )
     _add_positional(p_export)
+    p_explain = sub.add_parser(
+        "explain", help="查询某条日志文本对应的可执行建议（hint）",
+        parents=[common_parent],
+    )
+    p_explain.add_argument("text", nargs="*", help="日志文本片段")
     sub.add_parser("demo", help="跑独立库内置演示（integration_demo.run_demo）")
     return parser

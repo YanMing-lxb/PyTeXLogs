@@ -23,12 +23,15 @@ Transcript written on sample.log.
 
 def test_to_json_has_keys():
     """TR-5.1：to_json 结果解析成功，含 __format__ / pytexlogs_version / meta / tool_results。"""
+    from pytexlogs import version as _version
+
     report = run_pipeline(captured_outputs={"pdflatex": _SAMPLE_LOG_TEXT})
     raw = to_json(report)
     data = json.loads(raw)
 
     assert data["__format__"] == "pytexlogs-json-v1"
-    assert data["pytexlogs_version"] == "0.4.0"
+    assert data["pytexlogs_version"] == _version.__version__
+    assert data.get("report_schema") == 1
     assert "meta" in data
     assert "tool_results" in data
 
