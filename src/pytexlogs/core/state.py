@@ -19,6 +19,7 @@ import json
 import logging
 import os
 import tempfile
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -29,7 +30,6 @@ __all__ = [
     "PROJECT_STATE_FILENAME",
     "SCHEMA_VERSION",
     "ProjectStateStore",
-    "StateFileCorrupted",
 ]
 
 logger = logging.getLogger(__name__)
@@ -45,10 +45,6 @@ _LOCK_SUFFIX = ".lock"
 
 #: 获取锁的最长等待时间（秒）；超时则放弃写入，让主流程继续
 _DEFAULT_LOCK_TIMEOUT = 2.0
-
-
-class StateFileCorrupted(Exception):
-    """状态文件内容损坏或版本不受支持时抛出（仅供调用方感知，不向外冒泡）。"""
 
 
 def _empty_state() -> dict[str, Any]:
@@ -144,12 +140,12 @@ class ProjectStateStore:
         return self._mutate(lambda state: self._merge_namespace(state, name, kwargs))
 
     def update_build(self, **kwargs: Any) -> bool:
-        """更新 ``pytexmk.build`` 下的若干键。"""
-        return self.update_namespace("pytexmk", build={**self.get_build(), **kwargs})
+        """更新 ``pytexmk.build`` 下的若干键（读-改-写全程在锁内完成）。"""
+        return self._update_section("pytexmk", "build", kwargs)
 
     def update_refs(self, **kwargs: Any) -> bool:
-        """更新 ``pytexlogs.refs`` 下的若干键。"""
-        return self.update_namespace("pytexlogs", refs={**self.get_refs(), **kwargs})
+        """更新 ``pytexlogs.refs`` 下的若干键（读-改-写全程在锁内完成）。"""
+        return self._update_section("pytexlogs", "refs", kwargs)
 
     def replace_namespace(self, name: str, value: dict[str, Any]) -> bool:
         """整体替换某个命名空间（该命名空间自己的数据，不涉及别人）。"""
@@ -164,15 +160,52 @@ class ProjectStateStore:
         return self._mutate(lambda state: state.pop(name, None))
 
     def clear(self) -> bool:
-        """删除状态文件（``pytexmk -c`` 等清理场景使用）。"""
-        try:
-            self.path.unlink(missing_ok=True)
-        except OSError as exc:
-            logger.debug("删除状态文件失败: %s (%s)", self.path, exc)
+        """清空本工具（PyTeXMK）的状态；文件里已无其它工具数据时顺带删除文件。
+
+        0.6.1 起不再整份 ``unlink``：直接删文件会连带抹掉 ``pytexlogs.refs``
+        等别人的命名空间，与"多工具共享一个文件、各自只删自己命名空间"的规则冲突。
+        """
+        removed = self.remove_namespace("pytexmk")
+        if not removed:
             return False
+        self._prune_if_empty()
         return True
 
     # ------------------------------------------------------------ 内部实现
+
+    #: 不属于任何工具的元数据键；仅剩这些键时说明状态文件已无业务数据
+    _META_KEYS = frozenset({"schema_version", "timestamp", "jobs"})
+
+    def _prune_if_empty(self) -> None:
+        """状态文件仅剩元数据时删除文件（避免残留空壳反复被读取）。"""
+        state = self.load()
+        if set(state) - self._META_KEYS:
+            return
+        try:
+            self.path.unlink(missing_ok=True)
+        except OSError as exc:
+            logger.debug("删除空状态文件失败: %s (%s)", self.path, exc)
+
+    def _update_section(self, namespace: str, section: str, updates: dict[str, Any]) -> bool:
+        """更新 ``<namespace>.<section>`` 下的键；整段读-改-写都在锁内完成。
+
+        0.6.1 修复：旧实现先在锁外 ``get_build()/get_refs()`` 读一份快照再写回，
+        锁内重新 load 时会把这份**过期快照**合并进去，并发场景（``--watch`` 与
+        多个子项目、或 PyTeXMK + PyTeXLogs 同时写）会互相覆盖丢键。
+        """
+
+        def _apply(state: dict[str, Any]) -> None:
+            ns = state.get(namespace)
+            if not isinstance(ns, dict):
+                ns = {}
+            target = ns.get(section)
+            if not isinstance(target, dict):
+                target = {}
+            target.update(updates)
+            ns[section] = target
+            state[namespace] = ns
+
+        return self._mutate(_apply)
 
     @staticmethod
     def _merge_namespace(state: dict[str, Any], name: str, updates: dict[str, Any]) -> None:
@@ -253,15 +286,15 @@ class ProjectStateStore:
 
     def _try_acquire(self) -> bool:
         """尝试创建锁文件；超时返回 False。"""
-        deadline = _monotonic() + max(0.0, self.lock_timeout)
+        deadline = time.monotonic() + max(0.0, self.lock_timeout)
         while True:
             try:
                 fd = os.open(str(self.lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
             except FileExistsError:
                 self._break_stale_lock()
-                if _monotonic() >= deadline:
+                if time.monotonic() >= deadline:
                     return False
-                _sleep(0.02)
+                time.sleep(0.02)
                 continue
             except OSError:
                 return False
@@ -274,7 +307,7 @@ class ProjectStateStore:
             mtime = self.lock_path.stat().st_mtime
         except OSError:
             return
-        if _time_now() - mtime > 30.0:
+        if time.time() - mtime > 30.0:
             try:
                 self.lock_path.unlink(missing_ok=True)
             except OSError:
@@ -284,24 +317,3 @@ class ProjectStateStore:
 def _now_iso() -> str:
     """当前本地时区的 ISO 时间字符串（带偏移）。"""
     return datetime.now(tz=UTC).astimezone().isoformat()
-
-
-def _monotonic() -> float:
-    """单调时钟秒数。"""
-    import time
-
-    return time.monotonic()
-
-
-def _time_now() -> float:
-    """挂钟秒数。"""
-    import time
-
-    return time.time()
-
-
-def _sleep(seconds: float) -> None:
-    """短暂休眠。"""
-    import time
-
-    time.sleep(seconds)

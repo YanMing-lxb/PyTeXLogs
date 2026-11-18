@@ -16,7 +16,6 @@ from pytexlogs import ProjectStateStore
 from pytexlogs.core.state import (
     PROJECT_STATE_FILENAME,
     SCHEMA_VERSION,
-    StateFileCorrupted,
 )
 
 
@@ -193,6 +192,9 @@ def test_timestamp_and_job_recorded(tmp_path):
     assert "main" in data["jobs"]
 
 
-def test_state_file_corrupted_exception_is_exportable():
-    """异常类型对外可见，供调用方做精细化处理。"""
-    assert issubclass(StateFileCorrupted, Exception)
+def test_broken_json_degrades_to_empty_skeleton(tmp_path):
+    """坏 JSON 只降级为空骨架，不抛出异常（0.6.0 起不再暴露 StateFileCorrupted）。"""
+    path = tmp_path / PROJECT_STATE_FILENAME
+    path.write_text("{not json", encoding="utf-8")
+    store = ProjectStateStore(tmp_path, "main")
+    assert store.load() == {"schema_version": SCHEMA_VERSION}

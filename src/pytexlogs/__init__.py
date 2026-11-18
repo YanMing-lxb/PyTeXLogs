@@ -8,11 +8,7 @@ Architecture rule (DO NOT BREAK):
   - 禁止在本包外新建 `log_parser.py` 薄转发文件；所有外部使用必须走本 __all__ 列表中的公共 API。
 """
 
-import warnings as _warnings
-from collections.abc import Callable
-from typing import Any
-
-from .core.engine import run_pipeline as _run_pipeline_raw
+from .core.engine import run_pipeline
 from .core.logkind import (
     plan_default_steps,
     sniff_bib_tool,
@@ -29,6 +25,7 @@ from .core.models import (
     ToolResult,
     ToolResultReport,
     ToolResultStats,
+    level_from_value,
 )
 from .core.reftracker import RefChangeTracker
 from .core.registry import LogParserRegistry, LogParserSpec, load_entry_points
@@ -37,7 +34,6 @@ from .core.state import (
     PROJECT_STATE_FILENAME,
     SCHEMA_VERSION,
     ProjectStateStore,
-    StateFileCorrupted,
 )
 from .display import (
     CATEGORY_LABEL,
@@ -72,30 +68,6 @@ from .parsers.pythontex import PythontexParser
 from .parsers.xindy import XindyParser
 from .version import __version__
 
-
-def _deprecating_alias(wrapped: Callable[..., Any], old_name: str, new_name: str) -> Callable[..., Any]:
-    """为被重命名的公共函数生成一个发出 DeprecationWarning 的兼容别名。"""
-
-    def _wrapper(*args: Any, **kwargs: Any) -> Any:
-        _warnings.warn(
-            f"{old_name}() is deprecated since pytexlogs 0.3.0; use {new_name}() instead",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return wrapped(*args, **kwargs)
-
-    _wrapper.__name__ = old_name
-    _wrapper.__wrapped__ = wrapped  # type: ignore[attr-defined]  # functools.wraps 风格的元数据标记
-    return _wrapper
-
-
-run_pipeline = _run_pipeline_raw
-run_log_pipeline = _deprecating_alias(_run_pipeline_raw, "run_log_pipeline", "run_pipeline")
-
-Manager = LogParserManager
-Registry = LogParserRegistry
-Report = ParsedPipelineReport
-
 __all__ = [
     "__version__",
     "BIBER_WARNING_HINTS",
@@ -119,7 +91,6 @@ __all__ = [
     "LogParserRegistry",
     "LogParserSpec",
     "MakeindexParser",
-    "Manager",
     "MintedParser",
     "NomenclParser",
     "ParsedLog",
@@ -127,9 +98,6 @@ __all__ = [
     "ProjectStateStore",
     "PythontexParser",
     "RefChangeTracker",
-    "Registry",
-    "Report",
-    "StateFileCorrupted",
     "ToolResult",
     "ToolResultReport",
     "ToolResultStats",
@@ -143,13 +111,13 @@ __all__ = [
     "load_entry_points",
     "load_report",
     "log_editor_jumps",
+    "level_from_value",
     "parse_auxdir",
     "parse_log_file",
     "parse_log_text",
     "plan_default_steps",
     "print_summary",
     "run_demo",
-    "run_log_pipeline",
     "run_pipeline",
     "set_summary_language",
     "show_log_entries",

@@ -97,24 +97,30 @@ IMPORTANCE_LABEL: dict[str, str] = {
     "low": "低",
 }
 
-_LEVEL_ORDER = ["error", "warning", "info"]
+_LEVEL_ORDER = ["error", "warning", "info", "typesetting"]
+
+#: 显示名 → 枚举的唯一映射（按 `_LEVEL_ORDER` 派生，新增等级只需改上面一行）
+_LEVEL_MAP = {name: LogLevel(name) for name in _LEVEL_ORDER}
 
 _LEVEL_TITLE = {
     "error": "错误汇总",
     "warning": "警告汇总",
     "info": "提示汇总",
+    "typesetting": "排版提示汇总",
 }
 
 _LEVEL_SYMBOL_MARKUP = {
     "error": "[bold red]  [E][/]",
     "warning": "[bold yellow]  [W][/]",
     "info": "[bold blue]  [I][/]",
+    "typesetting": "[dim]  [T][/]",
 }
 
 _LEVEL_SEP_STYLE = {
     "error": "bold red",
     "warning": "bold yellow",
     "info": "bold blue",
+    "typesetting": "dim",
 }
 
 _ANSI_RE = _re.compile(r"\x1b\[[0-9;]*[mK]")
@@ -129,11 +135,7 @@ def _group_by(
         for cat in CATEGORY_ORDER:
             result[lv][cat] = []
 
-    level_map = {
-        "error": LogLevel.ERROR,
-        "warning": LogLevel.WARNING,
-        "info": LogLevel.INFO,
-    }
+    level_map = _LEVEL_MAP
 
     for plog in parsed_logs:
         category = plog.category if plog.category in CATEGORY_ORDER else "compile"

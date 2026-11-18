@@ -44,15 +44,13 @@ class LogParserManager:
     """解析器管理器：按 step/suffix 路由到对应 BaseLogParser 并汇总。"""
 
     def __init__(self, registry: LogParserRegistry | None = None) -> None:
-        """初始化 LogParserManager：缓存 registry、step→suffix 映射与回退解析器。"""
+        """初始化 LogParserManager：缓存 registry（默认取内置 + entry point 注册表）。"""
         self.registry: LogParserRegistry = (
             registry if registry is not None else LogParserRegistry.get_default_registry()
         )
-        self._fallback_registered: dict[str, type[BaseLogParser]] = {}
 
     def register(self, step_name: str, parser_cls: type[BaseLogParser]) -> None:
-        """注册自定义解析器 step_name → (suffix, parser_cls)。"""
-        self._fallback_registered[step_name] = parser_cls
+        """注册自定义解析器 step_name → parser_cls（直接进 registry，不再维护第二份映射）。"""
         self.registry.register(step_name, parser_cls)
 
     def lookup(self, step_name: str) -> LogParserSpec | None:
@@ -65,12 +63,9 @@ class LogParserManager:
         jobname: str,
         auxdir: str | Path,
     ) -> Path | None:
-        """按解析器后缀在 auxdir 查找日志文件路径。"""
+        """按解析器后缀在 auxdir 查找日志文件路径；未注册的解析器返回 None。"""
         spec = self.registry.find_spec_by_parser_cls(parser_cls)
         if spec is None:
-            for pc in self._fallback_registered.values():
-                if pc is parser_cls:
-                    return None
             return None
 
         if spec.discover_hook is not None:
@@ -81,12 +76,9 @@ class LogParserManager:
 
     def _resolve_parser(self, step_name: str) -> tuple[type[BaseLogParser] | None, LogParserSpec | None]:
         spec = self.registry.lookup(step_name)
-        if spec is not None:
-            return spec.parser_cls, spec
-        fallback_cls = self._fallback_registered.get(step_name)
-        if fallback_cls is not None:
-            return fallback_cls, None
-        return None, None
+        if spec is None:
+            return None, None
+        return spec.parser_cls, spec
 
     def run(
         self,
@@ -124,14 +116,7 @@ class LogParserManager:
                 parsed = parser.parse(text)
                 parsed.source_path = key
             else:
-                log_path = None
-                if spec is not None:
-                    if spec.discover_hook is not None:
-                        log_path = spec.discover_hook(jobname, Path(auxdir))
-                    if log_path is None:
-                        log_path = spec.default_discover(jobname, auxdir)
-                else:
-                    log_path = self.discover_log_path(parser_cls, jobname, auxdir)
+                log_path = self.discover_log_path(parser_cls, jobname, auxdir)
                 if log_path is None:
                     continue
                 try:

@@ -1,5 +1,59 @@
 # Changelog
 
+## v0.6.1 - 2026-11-18
+
+### 破坏性变更（无兼容层，旧接口一律删除）
+- **`run_pipeline` 只保留一套签名**：删除 0.4/0.5 的 `tex_engine` / `tex_output` / `bibtex_output` / `biber_output` / `other_engine_outputs` / `quiet` 旧位置参数与 `write_report` 旧名（连同其 `DeprecationWarning`）。捕获输出统一用 `steps=` + `captured_outputs=`。
+- **删除 `pytexlogs/__init__.py` 中的别名**：`run_log_pipeline`（`run_pipeline` 的 DeprecationWarning 包装）、`Manager` / `Registry` / `Report`（`LogParserManager` / `LogParserRegistry` / `ParsedPipelineReport` 的裸别名）。请直接使用真实类名。
+- **删除 `StateFileCorrupted`**：该异常从未被 `raise` 过，抛出即死代码；状态文件损坏统一降级为空骨架并记日志。
+- **删除 `reftracker` 的 `input_re` / `citation_command_re`**：定义并导出但全库无调用者。
+- **`LogParserRegistry.get_instance()` 不再返回空表**：改为委托 `get_default_registry()`；原先 `get_instance()` 返回"什么都没注册"的实例属于静默失效陷阱。
+- **`easy.parse_log_file(engine=...)` 未知引擎直接 `ValueError`**：不再静默回退 pdflatex；可选值由 registry 的 `all_step_names()` 列出。
+- **`bibtex` 注册后缀移除 `.bcf`**：`.bcf` 是 biber 的 XML 构建文件，不是 bibtex 的日志。
+
+### 修复
+- **`TYPESET` 排序错误**：`LogLevel` 重排为 `ERROR(0) WARNING(1) INFO(2) TYPESET(3) FONT(4) GRAPHIC(5) PAGE(6)`。0.5 的 `ERROR < WARNING < TYPESET < INFO` 让"提示"排在 `INFO` 之前，`filter_severity(min_level=INFO)` 的过滤结果与语义相反。
+- **报告回读把 `font/graphic/page` 降级成 `info`**：`_VALID_LEVELS` 改为由 `LogLevel` 派生，CLI 的等级映射删除自建表，统一走新增的 `level_from_value()`。
+- **`--severity all` 漏掉提示级**：`all` 原映射成 `LogLevel.INFO`，把 `TYPESET`/`FONT`/`GRAPHIC`/`PAGE` 一起滤掉；改为映射枚举末级（不过滤）。
+- **`print_summary` 整组丢弃排版提示**：`display/formatter._group_by` 的等级表只写死 `error/warning/info`，`TYPESET` 条目虽有解析结果却从不进入摘要；改为按 `_LEVEL_ORDER` 派生映射，并在 `show_info=True` 时展开"排版提示汇总"分组。
+- **`severity_counts` 丢桶**：分级桶按枚举动态生成，不再只写死 `error/warning/typesetting/info`（否则 `font/graphic/page` 计入 `total` 却没有自己的桶）。
+- **编码兜底静默乱码**：候选顺序改为 `utf-8-sig → utf-8 → gb18030`，删除 `latin-1`（对任意字节都能解码，等于永不失败地把乱码交给解析器）与冗余 `gbk`（`gb18030` 是其超集）；全部失败时 `utf-8 + errors="replace"` 并 `warning`。`models.BaseLogParser._read_log_text` 的第二份编码列表删除，统一委托 `utils.encoding.read_log_text`。
+- **状态文件并发丢键**：`ProjectStateStore.update_build/update_refs` 改为 `_update_section()` 全程锁内读-改-写；0.5 在锁外读快照、锁内合并，会把过期快照覆盖别人刚写的键。
+- **`clear()` 抹掉别人的命名空间**：改为 `remove_namespace("pytexmk")` + `_prune_if_empty()`（仅剩 `schema_version/timestamp/jobs` 才删文件），不再整份 `unlink`。
+- **CLI 异常无任何可见输出**：`_configure_logging()` 挂 stderr handler（`PYTEXLOGS_DEBUG=1` 开 `DEBUG` 含堆栈），`except Exception` 同时向 stderr 打印类型与消息。
+- **`explain` 文案硬编码中文**：空输入/无匹配/无结果三条提示走新增 `_MSG`（zh/en）。
+- **`LogParserManager` 死分支**：删除 `_fallback_registered` 与 `discover_log_path` 中两条都 `return None` 的分支；`run()` 统一走 `discover_log_path`。
+- **`RefChangeTracker.detect_mode` 整份读 aux**：改为逐行流式扫描，命中即返回。
+- **报告反序列化吞掉 `TypeError`**：删除 `_from_dict_simple` 的 `try/except TypeError` 兜底与 `_unknown_keys_*` 污染键；未知字段直接进 `custom_fields`。
+- **`schema_version` 两处字面量**：新增 `models.REPORT_SCHEMA_VERSION = 1`，写盘/回读共用同一常量。
+
+### 变更
+- 覆盖率不再 `omit` 12 个核心模块（`engine` / `report` / `manager` / `reftracker` / 6 个 parser 等）；覆盖率低就补测试，而不是隐藏被测对象。
+- `display/printer.py` 删除仅供日志分支使用的 `_format_separator_old`（连同 `_LEVEL_ANSI` / `_ANSI_RESET`），日志与终端共用同一份分隔符。
+- `display/printer.py::print_summary` 的 12 处 `if use_logger / elif stream / else` 三路分派收敛为单一 `emit()`：原先每加一段输出就要抄一遍三分支，漏改一处就会让终端与日志里的同一段内容不一致（返回字符串也可能漏记）。
+- `core/state.py` 内联 `_monotonic/_time_now/_sleep` 三个纯转发封装。
+- **`hints.py` 改为规则表**：28 条匹配模式收敛成 23 条 `_Rule(rule_id, match, build)`，`_hint_for_text_raw` 只按表顺序跑一遍；顺序本身是语义（`Emergency stop` 必须先于 `Undefined control sequence`），因此新增 `RULE_IDS` 快照供测试断言。原先是一段 250 行的 if 阶梯，新增规则要手工找插入位置，改错顺序不会有任何提示。
+- **CLI 聚合层直接建在报告模型上**：`_collect_from_paths` 统一返回 `list[ToolResultReport]`，删除 CLI 内的 `ToolResultReport → ToolResult` 转换（以及 `_aggregate_stats`/`_filter_against_baseline`/文本摘要对它二次拆装的代码）。两套模型之间只保留一个转换点 `ToolResultReport.from_parsed_log()`（单文件 `ParsedLog` 并进报告列表时用），`_as_parsed_logs()` 只服务展示层（`print_summary` 需要枚举等级）。
+- **导出器支持报告列表**：`to_json` / `to_csv` / `to_sarif` / `filter_by_level` / `_flatten_to_entries` 均可接受 `list[ToolResultReport]`；`ReportEntry → LogEntry` 的等级映射抽成 `_report_entry_to_log_entry()` 一处，替代各导出器自建映射表。
+- **README API 表与真实导出对齐**：删掉 0.6.1 已删除的别名（`run_log_pipeline` / `Manager` / `Registry` / `Report`，照文档抄会直接 `ImportError`），补上 `ToolResultReport`（含 `from_parsed_log`）、`level_from_value`，`LogLevel` 枚举补齐到 7 级。
+
+### 修复
+- **`--baseline` 指向不存在的文件**：原先 `FileNotFoundError` 冒到 CLI 顶层，用户只看到“CLI 异常”与堆栈；现在打印 `基线报告不存在：<path>（先用 --output 导出一次 JSON 报告）`（中英双语）并以 2 退出。
+- **过滤到空仍打印统计**：`--baseline` 把条目全部过滤掉后，摘要依旧输出 `By category: compile=1`（统计的是“结果个数”，看着像有内容）；现在空结果不再参与统计，文本模式提示“没有新增条目”，JSON 输出 `results: []`。
+
+### 行为变化（`--format json`）
+- CLI 导出的 `results[*]` **不再包含 `raw_text`**：文件模式下它会把整份日志原文再抄一遍，与 `entries` 重复；库 API `to_json(list[ToolResult])` 形状不变。
+- 单文件输入的 `tool_name` 改为解析器标识（如 `latex`），不再取文件后缀（如 `log`）；`category` 仍为 `compile`。
+
+### 测试
+- `test_state_store.py::test_state_file_corrupted_exception_is_exportable` 改写为 `test_broken_json_degrades_to_empty_skeleton`（验证损坏 JSON 降级为空骨架）。
+- 新增 `tests/test_level_semantics.py`：锁定 `ERROR < WARNING < INFO < TYPESET < FONT < GRAPHIC < PAGE`、"`--severity all` 保留提示级"、"`--severity warning` 过滤 Overfull" 三条语义。
+- 新增 `tests/test_hints_bilingual.py`：23 条语料覆盖 `hints.py` 全部规则分支，断言每条规则中文含汉字、`--lang en` 输出无汉字；并锁定内建提示表（LaTeX/BibTeX/Biber 共 15 键）英文说明无缺口，避免英文环境回退到中文。
+- 新增 `tests/test_hints_precedence.py`：`RULE_IDS` 顺序快照 + 30 条语料逐条断言命中规则（要求每条规则都有覆盖）+ 5 组优先级对（致命 > 未定义命令、缺 `.sty` > 缺文件、缺字形不被“字体未找到”抢答、多行错误 > 内建提示、缺宏包 > 宏包错误）。
+- 新增 `tests/test_cli_report_pipeline.py`：锁定 CLI 收集返回报告模型、`from_parsed_log` 是唯一转换点、`--format json` 字段形状、`--baseline` 缺文件的可读报错、基线过滤到空后的输出。
+- `test_summary.py` 新增 `test_typesetting_entries_are_grouped`（`show_info=True` 时 Overfull 进入"排版提示汇总"分组）。
+- 全量：**239 passed, 1 skipped**。
+
 ## v0.5.0 - 2026-11-16
 
 ### 新增

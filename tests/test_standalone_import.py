@@ -13,7 +13,7 @@ def test_all_required_symbols_present():
         "LogEntry", "ParsedLog", "ParsedPipelineReport", "RefChangeTracker",
         "BaseLogParser", "LogParserRegistry", "LogParserSpec", "print_summary",
         "format_editor_jumps", "log_editor_jumps", "show_log_entries",
-        "run_log_pipeline", "LATEX_LOG_HINTS", "BIBTEX_ERROR_HINTS",
+        "run_pipeline", "LATEX_LOG_HINTS", "BIBTEX_ERROR_HINTS",
         "BIBER_WARNING_HINTS", "CATEGORY_LABEL", "CATEGORY_ORDER",
         "IMPORTANCE_LABEL", "load_report", "write_report", "run_demo",
     ]
@@ -46,10 +46,10 @@ def test_format_editor_jumps_smoke():
     assert found, f"Expected 'chapters/intro.tex:7' in jumps, got: {jumps}"
 
 
-def test_run_log_pipeline_smoke():
-    from pytexlogs import print_summary, run_log_pipeline
-    report = run_log_pipeline(
-        quiet=True,
+def test_run_pipeline_smoke():
+    from pytexlogs import print_summary, run_pipeline
+
+    report = run_pipeline(
         print_terminal=False,
         pytexmk_version="0.1.0",
         ref_tracker_translate_fn=None,

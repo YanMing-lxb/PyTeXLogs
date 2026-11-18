@@ -121,7 +121,6 @@ print(f"自定义 parser 产出 {len(results[0].warnings)} 条 lint 警告")
 | `filter_severity(entries, min_level=WARNING)` | 按严重度裁剪日志条目 |
 | `aggregate_stats(obj, group_by="category\|level\|parser")` | 聚合统计 → 直方图/报表数据源 |
 | `run_pipeline(...)` | 完整 pipeline：发现→解析→汇总→摘要→报告一体化（推荐） |
-| `run_log_pipeline(...)` | `run_pipeline` 的向后兼容别名（0.1.0 原名） |
 | `print_summary(results, ...)` | 终端友好的摘要打印（含错误/警告汇总、HINT 字典） |
 | `show_log_entries(entries, ...)` | 逐条日志条目可视化展示 |
 | `format_editor_jumps(entries)` | 生成 `file:line: message` 的编辑器跳转列表 |
@@ -132,8 +131,8 @@ print(f"自定义 parser 产出 {len(results[0].warnings)} 条 lint 警告")
 
 | 符号 | 用途 |
 |---|---|
-| `LogParserManager` / `Manager` | 按 step/suffix 调度多个解析器的管理器 |
-| `LogParserRegistry` / `Registry` | 解析器注册表：默认 11 项 + Entry Point 自动加载 |
+| `LogParserManager` | 按 step/suffix 调度多个解析器的管理器 |
+| `LogParserRegistry` | 解析器注册表：默认 11 项 + Entry Point 自动加载 |
 | `LogParserSpec` | 单条解析器规格结构 |
 | `load_entry_points()` | 手动触发 `pytexlogs.parsers` Entry Point 加载 |
 
@@ -141,12 +140,14 @@ print(f"自定义 parser 产出 {len(results[0].warnings)} 条 lint 警告")
 
 | 符号 | 用途 |
 |---|---|
-| `ParsedPipelineReport` / `Report` | `run_pipeline` 返回值：汇总报告 + 元数据 |
+| `ParsedPipelineReport` | `run_pipeline` 返回值：汇总报告 + 元数据 |
 | `ParsedLog` | 单个 parser 的单次解析结果 |
 | `ToolResult` | 单个工具解析结果（Manager.run / parse_auxdir 返回） |
+| `ToolResultReport` | 报告层单工具结果（JSON 兼容等级）；`ToolResultReport.from_parsed_log(parsed)` 是把单个 `ParsedLog` 并入报告列表的唯一转换点 |
 | `ToolResultStats` | 单个 ToolResult 的统计计数器结构 |
 | `LogEntry` | 单条日志条目：level / file / line / text / error_pos_text |
-| `LogLevel` | 枚举：ERROR / WARNING / INFO / ... |
+| `LogLevel` | 枚举：ERROR / WARNING / INFO / TYPESET / FONT / GRAPHIC / PAGE |
+| `level_from_value(value)` | 把枚举或字符串等级归一化成 `LogLevel`（报告回读与展示层共用） |
 | `BaseLogParser` | 所有自定义解析器的抽象基类 |
 | `RefChangeTracker` | 参考文献引用变更跟踪器 |
 | `load_report(path)` | 从 JSON 恢复 `ParsedPipelineReport` |

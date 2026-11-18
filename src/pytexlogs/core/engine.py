@@ -4,7 +4,6 @@ import logging
 import re
 import tempfile
 import time
-import warnings
 from collections import Counter
 from collections.abc import Callable
 from copy import deepcopy
@@ -16,6 +15,7 @@ from ..display.printer import print_summary
 from .logkind import plan_default_steps
 from .manager import LogParserManager
 from .models import (
+    REPORT_SCHEMA_VERSION,
     ConfigIgnoredReport,
     LogEntry,
     LogLevel,
@@ -25,10 +25,14 @@ from .models import (
     ReferencesReport,
     ReportEntry,
     ToolResultReport,
+    level_from_value,
 )
 from .reftracker import RefChangeTracker
 
 logger = logging.getLogger(__name__)
+
+#: 合法等级字符串集合：直接由枚举派生，报告与统计共用同一口径。
+_LEVEL_VALUES: frozenset[str] = frozenset(level.value for level in LogLevel)
 
 
 def run_pipeline(
@@ -48,73 +52,25 @@ def run_pipeline(
     *,
     language: str | None = None,
     summary_max_entries: int | None = None,
-    tex_engine: str | None = None,
-    tex_output: str | None = None,
-    bibtex_output: str | None = None,
-    biber_output: str | None = None,
-    other_engine_outputs: dict[str, str] | None = None,
-    quiet: bool | None = None,
-    write_report: bool | None = None,
 ) -> ParsedPipelineReport:
-    """入口函数，统一执行日志发现 → 解析 → 汇总 → 终端打印 → 报告写盘 → 返回结构化报告。
+    """入口函数：日志发现 → 解析 → 汇总 → 终端打印 → 报告写盘 → 返回结构化报告。
 
-    支持两套调用签名：
-      - 新签名（推荐）：run_pipeline(jobname, auxdir, captured_outputs={...}, steps=[...])
-      - 旧兼容签名：run_pipeline(tex_engine='pdflatex', tex_output='', bibtex_output='',
-                                    biber_output='', other_engine_outputs={}, quiet=True)
-
-    参数 ``write_report`` 是 0.4.x 的旧名字，0.5 起更名为 ``write_report_file``；
-    旧名字仍可传入（会转成新参数并发 DeprecationWarning），避免下游静默失效。
+    0.6.1 起只保留这一套签名：0.4/0.5 的 ``tex_engine/tex_output/bibtex_output/
+    biber_output/other_engine_outputs/quiet`` 旧位置参数与 ``write_report`` 旧名
+    已删除，调用方需统一用 ``steps`` + ``captured_outputs`` + ``write_report_file``。
     """
-    _Path = Path
-
-    if write_report is not None:
-        warnings.warn(
-            "run_pipeline(write_report=...) 已更名为 write_report_file=...，旧名将在 0.6 移除",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        write_report_file = write_report_file or bool(write_report)
-
-    if tex_engine is not None or tex_output is not None or bibtex_output is not None \
-            or biber_output is not None or other_engine_outputs is not None:
-        if captured_outputs is None:
-            captured_outputs = {}
-        _captured = dict(captured_outputs)
-        if tex_engine and tex_output is not None:
-            _captured.setdefault(tex_engine, tex_output)
-        if bibtex_output is not None:
-            _captured.setdefault('bibtex', bibtex_output)
-        if biber_output is not None:
-            _captured.setdefault('biber', biber_output)
-        if other_engine_outputs:
-            for k, v in other_engine_outputs.items():
-                _captured.setdefault(k, v)
-        captured_outputs = _captured
-        if steps is None:
-            steps = list(dict.fromkeys(
-                ([tex_engine] if tex_engine else [])
-                + (['bibtex'] if bibtex_output is not None else [])
-                + (['biber'] if biber_output is not None else [])
-                + list(other_engine_outputs.keys() if other_engine_outputs else [])
-            )) or ['pdflatex']
-        if quiet is not None and print_terminal is None:
-            print_terminal = not quiet
-
     if captured_outputs is None:
         captured_outputs = {}
 
     if jobname is None or auxdir is None:
-        _td = _Path(tempfile.mkdtemp(prefix='pytexlogs_aux_'))
-        if jobname is None:
-            jobname = 'pytexlogs_default_job'
-        if auxdir is None:
-            auxdir = str(_td)
+        _td: Path | None = Path(tempfile.mkdtemp(prefix="pytexlogs_aux_"))
+        jobname = jobname or "pytexlogs_default_job"
+        auxdir = auxdir or str(_td)
     else:
         _td = None
 
     try:
-        effective_pytexmk_version = pytexmk_version or 'unknown'
+        effective_pytexmk_version = pytexmk_version or "unknown"
         if steps is None:
             # 按实际存在的日志文件规划，避免同一份 .blg/.ilg/.log 被多个 parser 重复消费
             steps = plan_default_steps(jobname, auxdir)
@@ -141,6 +97,29 @@ def run_pipeline(
         if _td is not None:
             import shutil as _sh
             _sh.rmtree(_td, ignore_errors=True)
+
+
+def _entry_to_report(entry: Any) -> ReportEntry:
+    """把运行时条目对象统一转成报告条目（唯一的 LogEntry → ReportEntry 转换点）。
+
+    0.6.1 起不再接受"解析器返回 dict 条目"的旧形态：内置解析器都返回
+    ``LogEntry``，dict 兼容层只会掩盖第三方解析器的类型错误。
+    """
+    if isinstance(entry, ReportEntry):
+        return entry
+    level = getattr(entry, "level", "info")
+    level = getattr(level, "value", level)
+    level_str = str(level)
+    if level_str not in _LEVEL_VALUES:
+        level_str = "info"
+    line = getattr(entry, "line", None)
+    return ReportEntry(
+        level=level_str,
+        file=getattr(entry, "file", None) or None,
+        line=int(line) if line is not None else None,
+        text=getattr(entry, "text", "") or "",
+        error_pos_text=getattr(entry, "error_pos_text", None) or None,
+    )
 
 
 def _run_pipeline_impl(
@@ -173,7 +152,6 @@ def _run_pipeline_impl(
 
     skipped_steps: list[str] = []
     tool_reports: list[ToolResultReport] = []
-    original_entries_for_summary: list[Any] = []
     # 已消费的日志文件：同一份 .blg/.ilg/.log 只允许一个 step 解析，
     # 防止自定义 steps 列表里同时出现 bibtex/biber 时统计翻倍。
     consumed_paths: dict[Path, str] = {}
@@ -207,7 +185,7 @@ def _run_pipeline_impl(
                 consumed_paths[resolved] = step
                 try:
                     log_text = spec.parser_cls(root_file=root_file)._read_log_text(log_path)
-                except Exception:
+                except OSError:
                     log_text = None
 
         if log_text is None:
@@ -215,80 +193,23 @@ def _run_pipeline_impl(
             continue
 
         parse_exception: dict[str, str] | None = None
-        parsed_entries: list[Any] = []
-        stats: dict[str, Any] = {'entries_count': 0}
+        parsed: ParsedLog | None = None
 
         try:
-            parser = spec.parser_cls(root_file=root_file)
-            parsed = parser.parse(log_text, root_file=root_file)
+            parsed = spec.parser_cls(root_file=root_file).parse(log_text, root_file=root_file)
+        except Exception as exc:  # noqa: BLE001 — 单个解析器崩溃不能中断整条流水线
+            logger.warning("step %s 解析失败: %s", step, exc, exc_info=True)
+            parse_exception = {"type": type(exc).__name__, "message": str(exc)}
 
-            if hasattr(parsed, 'entries'):
-                raw_entries = parsed.entries
-                if hasattr(parsed, 'stats') and isinstance(parsed.stats, dict):
-                    stats.update(parsed.stats)
-            elif isinstance(parsed, list):
-                raw_entries = parsed
-            else:
-                raw_entries = []
+        entries = list(parsed.entries) if isinstance(parsed, ParsedLog) else []
+        report_entries = [_entry_to_report(entry) for entry in entries]
 
-            if isinstance(raw_entries, dict):
-                raw_entries = [raw_entries]
-
-            adapted_entries: list[Any] = []
-            for e in raw_entries:
-                if isinstance(e, dict):
-                    level_val = e.get('level') or e.get('type', 'info')
-                    if level_val not in ('error', 'warning', 'typesetting', 'info'):
-                        level_map = {'error': 'error', 'warning': 'warning',
-                                     'typesetting': 'typesetting', 'info': 'info'}
-                        level_val = level_map.get(str(level_val).lower(), 'info')
-                    adapted_entries.append({
-                        'level': level_val,
-                        'file': e.get('file'),
-                        'line': e.get('line'),
-                        'text': e.get('text', ''),
-                        'error_pos_text': e.get('error_pos_text'),
-                    })
-                else:
-                    adapted_entries.append(e)
-
-            parsed_entries = adapted_entries
-
-        except Exception as e:
-            parse_exception = {'type': type(e).__name__, 'message': str(e)}
-            parsed_entries = []
-
-        report_entries: list[ReportEntry] = []
-        for _pe in parsed_entries:
-            if isinstance(_pe, dict):
-                level = _pe.get('level', 'info')
-                report_entries.append(ReportEntry(
-                    level=str(level),
-                    file=_pe.get('file'),
-                    line=_pe.get('line'),
-                    text=_pe.get('text', ''),
-                    error_pos_text=_pe.get('error_pos_text'),
-                ))
-            else:
-                lvl = getattr(_pe, 'level', 'info')
-                if hasattr(lvl, 'value'):
-                    lvl_str = lvl.value
-                else:
-                    lvl_str = str(lvl)
-                report_entries.append(ReportEntry(
-                    level=lvl_str,
-                    file=getattr(_pe, 'file', None),
-                    line=getattr(_pe, 'line', None),
-                    text=getattr(_pe, 'text', ''),
-                    error_pos_text=getattr(_pe, 'error_pos_text', None),
-                ))
-
-        level_counts: dict[str, int] = {}
-        for re_ in report_entries:
-            lvl = re_.level
-            level_counts[lvl] = level_counts.get(lvl, 0) + 1
-        stats.update(level_counts)
-        stats['entries_count'] = len(report_entries)
+        stats: dict[str, Any] = {}
+        if isinstance(parsed, ParsedLog) and isinstance(parsed.stats, dict):
+            stats.update(parsed.stats)
+        level_counts = Counter(entry.level for entry in report_entries)
+        stats.update(dict(level_counts))
+        stats["entries_count"] = len(report_entries)
 
         tool_report = ToolResultReport(
             tool_name=step,
@@ -300,7 +221,6 @@ def _run_pipeline_impl(
             parse_exception=parse_exception,
         )
         tool_reports.append(tool_report)
-        original_entries_for_summary.append((step, spec, parsed_entries, log_path))
 
     duration_ms = int((time.perf_counter() - t0) * 1000)
     pipeline_meta = PipelineMeta(
@@ -344,15 +264,17 @@ def _run_pipeline_impl(
         ref_report = ReferencesReport()
 
     severity_counts: dict[str, dict[str, int]] = {}
+    # 分级桶按枚举动态生成：0.5 只写死 error/warning/typesetting/info，
+    # 导致 font/graphic/page 条目进了 total 却没有自己的桶，统计自相矛盾。
+    _empty_buckets = {**{value: 0 for value in _LEVEL_VALUES}, "total": 0}
     for tool in tool_reports:
         cat = tool.category
-        if cat not in severity_counts:
-            severity_counts[cat] = {'error': 0, 'warning': 0, 'typesetting': 0, 'info': 0, 'total': 0}
+        bucket = severity_counts.setdefault(cat, dict(_empty_buckets))
         for _se in tool.entries:
             lvl = _se.level
-            if lvl in severity_counts[cat]:
-                severity_counts[cat][lvl] += 1
-            severity_counts[cat]['total'] += 1
+            if lvl in bucket:
+                bucket[lvl] += 1
+            bucket["total"] += 1
 
     config_ignored_report = ConfigIgnoredReport(
         ignore_patterns=list(ignore_patterns),
@@ -388,7 +310,7 @@ def _run_pipeline_impl(
             tool.stats['entries_count'] = len(remaining_entries)
 
     report = ParsedPipelineReport(
-        schema_version=1,
+        schema_version=REPORT_SCHEMA_VERSION,
         generated_at=datetime.now(tz=UTC).isoformat(),
         pytexmk_version=pytexmk_version,
         jobname=jobname,
@@ -405,21 +327,16 @@ def _run_pipeline_impl(
     if print_terminal:
         parsed_logs_for_summary: list[ParsedLog] = []
         for tool in tool_reports:
-            plog_entries: list[LogEntry] = []
-            for _te in tool.entries:
-                lvl_enum = LogLevel.INFO
-                lvl_str = _te.level
-                for le in LogLevel:
-                    if le.value == lvl_str:
-                        lvl_enum = le
-                        break
-                plog_entries.append(LogEntry(
-                    level=lvl_enum,
-                    file=_te.file or '',
-                    line=_te.line if _te.line is not None else 0,
-                    text=_te.text,
-                    error_pos_text=_te.error_pos_text or '',
-                ))
+            plog_entries = [
+                LogEntry(
+                    level=level_from_value(entry.level),
+                    file=entry.file or "",
+                    line=entry.line if entry.line is not None else 0,
+                    text=entry.text,
+                    error_pos_text=entry.error_pos_text or "",
+                )
+                for entry in tool.entries
+            ]
             plog = ParsedLog(
                 entries=plog_entries,
                 raw_text='',

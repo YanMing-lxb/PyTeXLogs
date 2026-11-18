@@ -7,18 +7,26 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Literal, override  # noqa: F401  # override 仅供注解使用
 
+from ..utils.encoding import read_log_text
+
 #: 严重程度排序：数字越小越严重（ERROR 最靠前）。
 #: 定义在模块级而非每次比较时重建，避免排序时的字典构造开销。
 _SEVERITY_RANK: dict[LogLevel, int]
 
 
 class LogLevel(Enum):
-    """日志等级枚举：错误/警告/排版/信息/字体/图形/页面。"""
+    """日志等级枚举：错误/警告/信息/提示（排版、字体、图形、页面）。
+
+    0.6.1 起 ``TYPESET`` 明确为"提示"（口径由用户确认），排序落在 ``INFO`` 之后：
+    它既不该比 info 更严重，也不该被当成 warning 计入 CI 失败阈值。
+    旧顺序 ``ERROR < WARNING < TYPESET < INFO`` 会让 ``min_level=INFO`` 的过滤
+    把"提示"排在 info 前面，属于错得很巧的实现。
+    """
 
     ERROR = "error"
     WARNING = "warning"
-    TYPESET = "typesetting"
     INFO = "info"
+    TYPESET = "typesetting"
     FONT = "font"
     GRAPHIC = "graphic"
     PAGE = "page"
@@ -106,14 +114,6 @@ class ParsedLog(_EntryHolder):
 class BaseLogParser(ABC):
     """日志解析器抽象基类：定义 parse/parse_file 接口与编码兜底读取。"""
 
-    _FALLBACK_ENCODINGS: tuple[str, ...] = (
-        "utf-8",
-        "utf-8-sig",
-        "gbk",
-        "gb18030",
-        "latin-1",
-    )
-
     def __init__(self, root_file: str | None = None) -> None:
         """初始化 BaseLogParser：缓存 root_file。"""
         self.root_file: str = root_file or ""
@@ -135,14 +135,8 @@ class BaseLogParser(ABC):
         return result
 
     def _read_log_text(self, log_path: str | Path) -> str:
-        path = Path(log_path)
-        data = path.read_bytes()
-        for encoding in self._FALLBACK_ENCODINGS:
-            try:
-                return data.decode(encoding)
-            except UnicodeDecodeError:
-                continue
-        return data.decode("utf-8", errors="replace")
+        """读取日志文本；编码候选与兜底策略统一由 :func:`utils.encoding.read_log_text` 维护。"""
+        return read_log_text(log_path)
 
     def _resolve_file_path(self, filename: str) -> str:
         """将相对路径解析为绝对路径，带缓存。"""
@@ -165,6 +159,9 @@ class BaseLogParser(ABC):
 
 # --- 报告数据模型 ---
 
+#: 报告 JSON 的 schema 版本（与状态文件 ``SCHEMA_VERSION`` 相互独立，各管一条版本轴）。
+#: 单点定义，写盘与回读都从这里取，避免"写 1、读 1"两处字面量漂移。
+REPORT_SCHEMA_VERSION = 1
 
 #: 报告层条目等级的可比较类型（兼容枚举与纯字符串两种来源）。
 ReportLevelLike = LogLevel | str
@@ -173,16 +170,21 @@ ReportLevelLike = LogLevel | str
 _LEVEL_LOOKUP: dict[str, LogLevel] = {lv.value: lv for lv in LogLevel}
 
 
-def _resolve_level(level_value: ReportLevelLike) -> LogLevel:
-    """把等级值归一化成 LogLevel；未知等级按 INFO 兜底。
+def level_from_value(level_value: ReportLevelLike) -> LogLevel:
+    """把等级值（枚举或字符串）归一化成 LogLevel；未知等级按 INFO 兜底。
 
     ``ReportEntry.level`` 存的是字符串（为了 JSON 兼容），而 ``ParsedLog`` 用的是
     ``LogLevel`` 枚举。两种模型对外暴露同一套 ``errors/warnings/info/by_level``
-    口径，这里负责把两种输入都折成枚举。
+    口径，这里负责把两种输入都折成枚举。0.6.1 起公开导出，替代各处自建的
+    ``{字符串: 枚举}`` 映射表（那些表正是把 font/graphic/page 压平成 info 的根源）。
     """
     if isinstance(level_value, LogLevel):
         return level_value
-    return _LEVEL_LOOKUP.get(level_value, LogLevel.INFO)
+    return _LEVEL_LOOKUP.get(str(level_value), LogLevel.INFO)
+
+
+#: 向后兼容的内部别名（同模块内旧调用点仍可用）。
+_resolve_level = level_from_value
 
 
 @dataclass(slots=True)
@@ -233,6 +235,43 @@ class ToolResultReport:
         """所有 INFO 级条目。"""
         return self.by_level(LogLevel.INFO)
 
+    @classmethod
+    def from_parsed_log(cls, parsed: ParsedLog) -> ToolResultReport:
+        """把运行时模型（枚举等级）折成报告模型（JSON 兼容等级）。
+
+        两个模型的分工：``run_pipeline`` 产出报告模型（写盘/导出/CLI 聚合都
+        用它），``easy.parse_log_file`` 产出运行时模型（单文件解析、展示层）。
+        需要把单个 ``ParsedLog`` 并进报告列表时走这里——这是两套模型之间
+        **唯一**的转换点，0.5 的 CLI 里原本还另抄了一份。
+        """
+        entries = [
+            ReportEntry(
+                level=_resolve_level(e.level).value,
+                file=e.file or None,
+                line=e.line or None,
+                text=e.text or "",
+                error_pos_text=e.error_pos_text or None,
+            )
+            for e in parsed.entries
+        ]
+        error_count = sum(1 for e in entries if e.level == LogLevel.ERROR.value)
+        warning_count = sum(1 for e in entries if e.level == LogLevel.WARNING.value)
+        importance: str = (
+            "high" if error_count else "medium" if warning_count else parsed.importance
+        )
+        return cls(
+            tool_name=parsed.tool_name,
+            category=parsed.category,
+            importance=importance,
+            source_path=parsed.source_path or None,
+            entries=entries,
+            stats={
+                "entries_count": len(entries),
+                "error": error_count,
+                "warning": warning_count,
+            },
+        )
+
 
 @dataclass(slots=True)
 class PipelineMeta:
@@ -271,7 +310,7 @@ class ConfigIgnoredReport:
 class ParsedPipelineReport:
     """顶层流水线解析报告。"""
 
-    schema_version: int = 1
+    schema_version: int = REPORT_SCHEMA_VERSION
     generated_at: str = field(default_factory=lambda: datetime.now(tz=UTC).isoformat())
     pytexmk_version: str = "unknown"
     jobname: str = ""

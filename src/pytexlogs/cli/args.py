@@ -35,7 +35,9 @@ _SEVERITY_LEVEL: dict[str, LogLevel] = {
     "error": LogLevel.ERROR,
     "warning": LogLevel.WARNING,
     "info": LogLevel.INFO,
-    "all": LogLevel.INFO,
+    # "all" = 不过滤：取枚举里最后一级（0.6.1 起是 PAGE，因此也包含 TYPESET/
+    # FONT/GRAPHIC）。0.5 把 all 映射成 INFO，正好漏掉最不严重的几类提示。
+    "all": list(LogLevel)[-1],
     "error+warning": LogLevel.WARNING,
 }
 

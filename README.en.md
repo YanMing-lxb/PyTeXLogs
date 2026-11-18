@@ -108,7 +108,6 @@ Grouped by `__all__` six sections:
 | `filter_severity(entries, min_level=WARNING)` | Filter log entries by severity |
 | `aggregate_stats(obj, group_by="category\|level\|parser")` | Aggregated statistics → histogram / report data source |
 | `run_pipeline(...)` | Full pipeline: discover → parse → aggregate → summarize → report (recommended) |
-| `run_log_pipeline(...)` | Backward-compatible alias for `run_pipeline` (original 0.1.0 name) |
 | `print_summary(results, ...)` | Terminal-friendly summary printing (includes error/warning totals, HINT dicts) |
 | `show_log_entries(entries, ...)` | Visualize log entries one by one |
 | `format_editor_jumps(entries)` | Generate editor jump list as `file:line: message` |
@@ -119,8 +118,8 @@ Grouped by `__all__` six sections:
 
 | Symbol | Purpose |
 |---|---|
-| `LogParserManager` / `Manager` | Manager that dispatches multiple parsers by step/suffix |
-| `LogParserRegistry` / `Registry` | Parser registry: 11 built-in + Entry Point auto-loading |
+| `LogParserManager` | Manager that dispatches multiple parsers by step/suffix |
+| `LogParserRegistry` | Parser registry: 11 built-in + Entry Point auto-loading |
 | `LogParserSpec` | Single parser spec structure |
 | `load_entry_points()` | Manually trigger `pytexlogs.parsers` Entry Point loading |
 
@@ -128,12 +127,14 @@ Grouped by `__all__` six sections:
 
 | Symbol | Purpose |
 |---|---|
-| `ParsedPipelineReport` / `Report` | `run_pipeline` return value: aggregated report + metadata |
+| `ParsedPipelineReport` | `run_pipeline` return value: aggregated report + metadata |
 | `ParsedLog` | Single parser result for one parse |
 | `ToolResult` | Single tool parse result (returned by Manager.run / parse_auxdir) |
+| `ToolResultReport` | Report-layer tool result (JSON-friendly levels); `ToolResultReport.from_parsed_log(parsed)` is the single conversion point into a report list |
 | `ToolResultStats` | Counter structure for a single ToolResult |
 | `LogEntry` | Single log entry: level / file / line / text / error_pos_text |
-| `LogLevel` | Enum: ERROR / WARNING / INFO / ... |
+| `LogLevel` | Enum: ERROR / WARNING / INFO / TYPESET / FONT / GRAPHIC / PAGE |
+| `level_from_value(value)` | Normalize an enum or string level into `LogLevel` (shared by report loading and display) |
 | `BaseLogParser` | Abstract base class for all custom parsers |
 | `RefChangeTracker` | Reference citation change tracker |
 | `load_report(path)` | Restore `ParsedPipelineReport` from JSON |

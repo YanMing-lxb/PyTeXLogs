@@ -44,7 +44,6 @@ class LogParserSpec:
 
 
 class LogParserRegistry:
-    _instance: LogParserRegistry | None = None
     _default_instance: LogParserRegistry | None = None
 
     def __init__(self) -> None:
@@ -53,9 +52,13 @@ class LogParserRegistry:
 
     @classmethod
     def get_instance(cls) -> LogParserRegistry:
-        if cls._instance is None:
-            cls._instance = cls()
-        return cls._instance
+        """返回全局默认注册表（含内置解析器与第三方 entry point）。
+
+        0.6.1 起本方法与 :meth:`get_default_registry` 等价：0.5 的 ``get_instance``
+        返回过一个"什么都没注册"的空表，调用方 ``lookup()`` 全部落空却不会报错，
+        属于静默失效的陷阱 API，故合并为单一入口。
+        """
+        return cls.get_default_registry()
 
     @classmethod
     def get_default_registry(cls) -> LogParserRegistry:
@@ -107,7 +110,9 @@ class LogParserRegistry:
             ),
             LogParserSpec(
                 step_names=["bibtex"],
-                log_suffixes=[".blg", ".bcf"],
+                # 0.6.1：移除 .bcf —— 那是 biber 的构建控制文件（XML），bibtex 从不产出，
+                # 挂在 bibtex 上会让 .bcf 成为"两个解析器争用的后缀"。
+                log_suffixes=[".blg"],
                 category="bibliography",
                 importance="high",
                 parser_cls=BibtexParser,
@@ -210,6 +215,29 @@ class LogParserRegistry:
 
     def lookup_by_suffix(self, suffix: str) -> list[LogParserSpec]:
         return list(self._suffix_to_specs.get(suffix, []))
+
+    def iter_specs(self) -> tuple[LogParserSpec, ...]:
+        """返回去重后的全部 spec（按注册顺序）。
+
+        ``easy.py`` 等调用方据此推导"后缀 → 解析器"，不再自建第二份映射表。
+        """
+        seen: set[int] = set()
+        result: list[LogParserSpec] = []
+        for specs in self._suffix_to_specs.values():
+            for spec in specs:
+                if id(spec) in seen:
+                    continue
+                seen.add(id(spec))
+                result.append(spec)
+        return tuple(result)
+
+    def all_suffixes(self) -> tuple[str, ...]:
+        """返回全部已注册日志后缀，按长度倒序（便于最长后缀优先匹配）。"""
+        return tuple(sorted(self._suffix_to_specs, key=len, reverse=True))
+
+    def all_step_names(self) -> tuple[str, ...]:
+        """返回全部已注册 step 名称（用于报错时列出可选值）。"""
+        return tuple(self._step_to_spec)
 
     def find_spec_by_parser_cls(self, parser_cls: type[BaseLogParser]) -> LogParserSpec | None:
         """根据解析器类查找对应的 spec。"""

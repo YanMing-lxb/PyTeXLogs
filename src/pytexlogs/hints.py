@@ -6,15 +6,23 @@
   两个反斜杠，而真实日志是 ``Overfull \\hbox``，不归一化就永远匹配不上；
 - 对“缺文件/缺宏包/缺字体”这类可自动修复的问题，额外给出安装命令
   （同时给 TeX Live 与 MiKTeX 两种写法，调用方按发行版挑一条即可）。
+
+0.6.1 起规则改为显式表格（``_RULES``）：每条规则 = 匹配器 + 生成器，
+``_hint_for_text_raw`` 只负责按顺序跑一遍。顺序就是语义（``Emergency stop``
+必须先于 ``Undefined control sequence`` 命中），因此顺序被 ``RULE_IDS``
+固化下来，供 ``tests/test_hints_precedence.py`` 做快照与优先级断言。
 """
 
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 __all__ = [
+    "RULE_IDS",
     "Hint",
     "collect_hints",
     "detect_missing_package",
@@ -191,261 +199,394 @@ def _missing_file_hint(name: str) -> Hint | None:
     )
 
 
+# --- 规则表 ---------------------------------------------------------------
+#
+# 每条规则由「匹配器 + 生成器」组成：匹配器拿归一化后的日志文本，命中时返回
+# 上下文（正则 Match / 提取到的名字 / 原文），生成器据此产出 Hint。
+# 匹配器返回 None 或空串表示未命中；生成器返回 None 表示“这条规则放弃了，
+# 交给后面的规则”（例如 ``File `x.png' not found`` 已由图片分支处理，
+# 非图片后缀的缺文件规则不该吞掉）。
+
+
+@dataclass(frozen=True, slots=True)
+class _Rule:
+    """一条提示规则。``rule_id`` 用于快照与优先级断言。"""
+
+    rule_id: str
+    match: Callable[[str], Any]
+    build: Callable[[Any], Hint | None]
+
+
+def _any_of(*needles: str, lower: bool = False) -> Callable[[str], bool]:
+    """子串匹配器：任意一个 needle 出现即命中（等价于原来的 ``a in t or b in t``）。"""
+    def _match(text: str) -> bool:
+        haystack = text.lower() if lower else text
+        return any(needle in haystack for needle in needles)
+
+    return _match
+
+
+def _match_package(text: str) -> str | None:
+    return detect_missing_package(text)
+
+
+def _build_package(pkg: str) -> Hint:
+    return Hint(
+        text=f"缺少宏包/文档类 `{pkg}`：请安装后重新编译（或改用已有宏包）。",
+        commands=_install_commands(pkg),
+        kind="missing_package",
+        text_en=(
+            f"Missing package/class `{pkg}`: install it, then rebuild "
+            "(or switch to an existing package)."
+        ),
+    )
+
+
+def _match_missing_file(text: str) -> str | None:
+    return _missing_file_name(text)
+
+
+def _match_font(text: str) -> Any:
+    match = _FONT_NOT_FOUND_RE.search(text)
+    # ``Missing character: There is no X in font Y`` 里也含 "in font"，
+    # 但它属于缺字形，交给后面的 missing_glyph 规则，别在这里抢答。
+    if match is None or "Missing character" in text:
+        return None
+    return match
+
+
+def _build_font(match: Any) -> Hint:
+    family = match.group(1).strip()
+    return Hint(
+        text=f"字体/字形 `{family}` 不可用：检查字体是否安装，或改用 fontspec 可用的字族。",
+        commands=(
+            f"fc-list | grep -i '{family}'",
+            "initexmf --update-fndb",
+        ),
+        kind="missing_font",
+        text_en=(
+            f"Font/glyph `{family}` is unavailable: check the font installation "
+            "or switch to a fontspec-compatible family."
+        ),
+    )
+
+
+def _match_unicode(text: str) -> Any:
+    return _UNICODE_RE.search(text)
+
+
+def _build_unicode(match: Any) -> Hint:
+    char, codepoint = match.group(1), match.group(2)
+    return Hint(
+        text=(
+            f"pdflatex 没有为 `{char}` (U+{codepoint}) 配置字形：改用 XeLaTeX/LuaLaTeX，"
+            "或把它替换成 ASCII 的 LaTeX 命令（如 \\ensuremath{\\alpha}）。"
+        ),
+        commands=("xelatex <主文件>.tex", "lualatex <主文件>.tex"),
+        kind="unicode",
+        text_en=(
+            f"pdflatex has no glyph set up for `{char}` (U+{codepoint}): "
+            "switch to XeLaTeX/LuaLaTeX, or replace it with an ASCII LaTeX "
+            "command (e.g. \\ensuremath{\\alpha})."
+        ),
+    )
+
+
+def _match_missing_glyph(text: str) -> Any:
+    return _MISSING_CHAR_RE.search(text)
+
+
+def _build_missing_glyph(match: Any) -> Hint:
+    char = match.group(1)
+    return Hint(
+        text=(
+            f"当前字体里没有字符 `{char}`：换用包含该字形的字体，"
+            "或用 \\newunicodechar 显式映射。"
+        ),
+        commands=("\\usepackage{newunicodechar}", f"\\newunicodechar{{{char}}}{{<LaTeX 写法>}}"),
+        kind="missing_glyph",
+        text_en=(
+            f"Current font has no glyph for `{char}`: use a font that contains it, "
+            "or map it explicitly with \\newunicodechar."
+        ),
+    )
+
+
+def _match_undefined_citation(text: str) -> Any:
+    return _UNDEFINED_CITATION_RE.search(text) or _UNDEFINED_CITATION_ZH_RE.search(text)
+
+
+def _build_undefined_citation(match: Any) -> Hint:
+    return Hint(
+        text=(
+            f"引用键 `{match.group(1)}` 未定义：检查 .bib 里是否存在该键，"
+            "并确认 biber/bibtex 已经成功运行。"
+        ),
+        commands=("biber <jobname>", "bibtex <jobname>"),
+        kind="undefined_citation",
+        text_en=(
+            f"Citation key `{match.group(1)}` is undefined: check .bib for that key "
+            "and confirm biber/bibtex ran successfully."
+        ),
+    )
+
+
+def _match_undefined_reference(text: str) -> Any:
+    return _UNDEFINED_REFERENCE_RE.search(text) or _UNDEFINED_REFERENCE_ZH_RE.search(text)
+
+
+def _build_undefined_reference(match: Any) -> Hint:
+    return Hint(
+        text=(
+            f"交叉引用 `{match.group(1)}` 未定义：确认 \\label 拼写，"
+            "并再编译一轮让 .aux 收敛。"
+        ),
+        commands=("xelatex <主文件>.tex  # 再跑一轮",),
+        kind="undefined_reference",
+        text_en=(
+            f"Cross-reference `{match.group(1)}` is undefined: check \\label spelling "
+            "and rerun compilation to converge .aux."
+        ),
+    )
+
+
+def _match_undefined_environment(text: str) -> Any:
+    return _UNDEFINED_ENV_RE.search(text)
+
+
+def _build_undefined_environment(match: Any) -> Hint:
+    return Hint(
+        text=(
+            f"环境 `{match.group(1)}` 未定义：确认提供该环境的宏包已 \\usepackage，"
+            "或检查环境名拼写/大小写。"
+        ),
+        kind="undefined_environment",
+        text_en=(
+            f"Environment `{match.group(1)}` is undefined: load the package that provides it, "
+            "or check the environment name/case."
+        ),
+    )
+
+
+def _match_missing_bib(text: str) -> Any:
+    return _BIB_DB_RE.search(text)
+
+
+def _build_missing_bib(match: Any) -> Hint:
+    name = match.group(1)
+    stem = name[:-4] if name.lower().endswith(".bib") else name
+    return Hint(
+        text=f"找不到文献数据库 `{name}`：确认 .bib 路径（相对主文件目录）与文件名大小写。",
+        commands=(f"kpsewhich {stem}.bib",),
+        kind="missing_bib",
+        text_en=f"Bibliography database `{name}` not found: check the .bib path (relative to the main file) and filename case.",
+    )
+
+
+def _build_float_overflow(_match: bool) -> Hint:
+    return Hint(
+        text="浮动体太多：在章节间加 \\clearpage，或使用 [H] 位置与 float 宏包。",
+        commands=("\\usepackage{float}", "\\clearpage"),
+        kind="float_overflow",
+        text_en="Too many unprocessed floats: add \\clearpage between sections, or use the float package with [H].",
+    )
+
+
+def _build_capacity(_match: bool) -> Hint:
+    return Hint(
+        text="TeX 内存/栈耗尽：先排查无限递归或超长表格；确属容量问题再调高 main_memory / extra_mem_top。",
+        commands=("initexmf --edit-config-file=texmf.cfg", "fmtutil-sys --all"),
+        kind="capacity",
+        text_en="TeX capacity exceeded: look for infinite recursion or oversized tables; only then raise main_memory / extra_mem_top.",
+    )
+
+
+def _build_no_output(_match: bool) -> Hint:
+    return Hint(
+        text="没有输出任何页面：检查 \\documentclass/\\begin{document} 是否完整，以及是否误用了 \\includeonly。",
+        kind="no_output",
+        text_en="No pages were produced: check \\documentclass/\\begin{document} and whether \\includeonly is too restrictive.",
+    )
+
+
+def _build_runaway(_match: bool) -> Hint:
+    return Hint(
+        text="括号/环境没有闭合：从报错行往前找最近的未配对 { } 或 \\begin/\\end。",
+        kind="runaway",
+        text_en="Unbalanced braces/environment: look backwards from the error line for the nearest unmatched { } or \\begin/\\end.",
+    )
+
+
+def _build_math_mode(_match: bool) -> Hint:
+    return Hint(
+        text="数学模式不匹配：检查漏写的 $、\\text 中的特殊字符，或 \\ensuremath 的使用。",
+        kind="math_mode",
+        text_en="Math mode mismatch: check for a missing $, special characters inside \\text, or \\ensuremath usage.",
+    )
+
+
+def _build_fatal(_match: bool) -> Hint:
+    return Hint(
+        text="编译被致命错误中断：先修复日志里 Emergency stop 上方的第一条错误。",
+        kind="fatal",
+        text_en="Compilation was stopped by a fatal error: fix the first error above Emergency stop.",
+    )
+
+
+def _match_undefined_control(text: str) -> str | None:
+    return text if _UNDEFINED_CONTROL_RE.search(text) else None
+
+
+def _build_undefined_control(text: str) -> Hint:
+    # 真实日志是 ``! Undefined control sequence.`` 后跟 ``l.5 ... \badcmd``；
+    # 直接取全文第一个 \xxx 会误抓 \ref 之类已定义命令，优先取 l.N 行的最后一个。
+    line_match = re.search(r"l\.?\d+\s+(.*)", text)
+    target = line_match.group(1) if line_match else text
+    controls = _CONTROL_NAME_RE.findall(target)
+    name = controls[-1] if controls else "<命令>"
+    return Hint(
+        text=(
+            f"未定义命令 `\\{name}`：检查拼写/大小写；若是宏包提供的命令，"
+            "确认对应 \\usepackage 已加载。"
+        ),
+        commands=(
+            f"grep -R \"\\\\{name}\" *.tex",
+            f"tlmgr search --global --file {name}.sty",
+        ),
+        kind="undefined_control",
+        text_en=(
+            f"Undefined command `\\{name}`: check spelling/case; if a package provides it, "
+            "confirm the matching \\usepackage is loaded."
+        ),
+    )
+
+
+def _match_end_mismatch(text: str) -> Any:
+    return _END_MISMATCH_RE.search(text)
+
+
+def _build_end_mismatch(_match: Any) -> Hint:
+    return Hint(
+        text=(
+            "\\begin{document} 被错误的 \\end{...} 提前关闭：检查环境嵌套，"
+            "确保每个 \\begin 都有同名 \\end。"
+        ),
+        kind="end_mismatch",
+        text_en="\\begin{document} was ended by a wrong \\end{...}: check environment nesting so every \\begin has a matching \\end.",
+    )
+
+
+def _build_invalid_utf8(_match: bool) -> Hint:
+    return Hint(
+        text="源码不是有效 UTF-8：把报错文件另存为 UTF-8（无 BOM），并检查是否混入 GBK 字符。",
+        commands=("file --mime-encoding <主文件>",),
+        kind="invalid_utf8",
+        text_en="Source is not valid UTF-8: save the offending file as UTF-8 (no BOM) and check for mixed GBK characters.",
+    )
+
+
+def _build_alignment_tab(_match: bool) -> Hint:
+    return Hint(
+        text="表格列数不匹配：检查每行 `&` 数量是否与列格式（如 `lcr`）一致。",
+        kind="alignment_tab",
+        text_en="Column count mismatch: check that each row has the same number of `&` as the column spec (e.g. lcr).",
+    )
+
+
+def _build_missing_number(_match: bool) -> Hint:
+    return Hint(
+        text="长度/数字参数缺失：检查 \\vspace、\\hspace、\\includegraphics[width=...] 等是否漏写数字或单位。",
+        kind="missing_number",
+        text_en="Missing length/number argument: check \\vspace, \\hspace, \\includegraphics[width=...] for a missing number or unit.",
+    )
+
+
+def _build_missing_item(_match: bool) -> Hint:
+    return Hint(
+        text="列表环境里缺少 \\item：在 itemize/enumerate 的每个条目开头补 \\item。",
+        kind="missing_item",
+        text_en="Missing \\item in a list: add \\item at the start of each itemize/enumerate entry.",
+    )
+
+
+def _match_package_error(text: str) -> Any:
+    return _PACKAGE_ERROR_RE.search(text)
+
+
+def _build_package_error(match: Any) -> Hint:
+    return Hint(
+        text=(
+            f"宏包 `{match.group(1)}` 报错：查看该行上下文与宏包选项，"
+            "必要时升级/降级该宏包。"
+        ),
+        kind="package_error",
+        text_en=(
+            f"Package `{match.group(1)}` error: inspect the surrounding lines "
+            "and package options; upgrade/downgrade if needed."
+        ),
+    )
+
+
+def _match_legacy_hint(text: str) -> str | None:
+    for key in collect_hints():
+        if _normalize(key) in text:
+            return key
+    return None
+
+
+def _build_legacy_hint(key: str) -> Hint:
+    return Hint(
+        text=collect_hints()[key],
+        kind="log_hint",
+        text_en=_LOG_HINT_EN.get(key, ""),
+    )
+
+
+#: 规则表。**顺序即语义**：更具体/更致命的规则必须排在前面
+#: （``Emergency stop`` 先于 ``Undefined control sequence``，
+#:  缺宏包先于缺文件，多行错误先于内建提示表）。
+_RULES: tuple[_Rule, ...] = (
+    _Rule("missing_package", _match_package, _build_package),
+    _Rule("missing_file", _match_missing_file, _missing_file_hint),
+    _Rule("missing_font", _match_font, _build_font),
+    _Rule("unicode", _match_unicode, _build_unicode),
+    _Rule("missing_glyph", _match_missing_glyph, _build_missing_glyph),
+    _Rule("undefined_citation", _match_undefined_citation, _build_undefined_citation),
+    _Rule("undefined_reference", _match_undefined_reference, _build_undefined_reference),
+    _Rule("undefined_environment", _match_undefined_environment, _build_undefined_environment),
+    _Rule("missing_bib", _match_missing_bib, _build_missing_bib),
+    _Rule("float_overflow", _any_of("Too many unprocessed floats"), _build_float_overflow),
+    _Rule("capacity", _any_of("TeX capacity exceeded"), _build_capacity),
+    _Rule("no_output", _any_of("No pages of output"), _build_no_output),
+    _Rule("runaway", _any_of("Runaway argument", "File ended while scanning"), _build_runaway),
+    _Rule("math_mode", _any_of("Missing $ inserted"), _build_math_mode),
+    _Rule("fatal", _any_of("Emergency stop", "Fatal error occurred"), _build_fatal),
+    _Rule("undefined_control", _match_undefined_control, _build_undefined_control),
+    _Rule("end_mismatch", _match_end_mismatch, _build_end_mismatch),
+    _Rule("invalid_utf8", _any_of("Invalid UTF-8 byte sequence"), _build_invalid_utf8),
+    _Rule("alignment_tab", _any_of("Extra alignment tab", "Misplaced alignment tab"), _build_alignment_tab),
+    _Rule("missing_number", _any_of("Missing number, treated as zero"), _build_missing_number),
+    _Rule("missing_item", _any_of("missing \\item", lower=True), _build_missing_item),
+    _Rule("package_error", _match_package_error, _build_package_error),
+    _Rule("log_hint", _match_legacy_hint, _build_legacy_hint),
+)
+
+#: 规则 id 的固定顺序（测试用它做快照；新增规则只能追加或显式调整顺序）。
+RULE_IDS: tuple[str, ...] = tuple(rule.rule_id for rule in _RULES)
+
+
 def _hint_for_text_raw(text: str) -> Hint | None:
-    """内部实现：按一条日志文本给出建议（不做上下文替换）。"""
+    """内部实现：按规则表给出建议（不做上下文替换）。"""
     if not text:
         return None
     normalized = _normalize(text)
-
-    pkg = detect_missing_package(normalized)
-    if pkg:
-        return Hint(
-            text=f"缺少宏包/文档类 `{pkg}`：请安装后重新编译（或改用已有宏包）。",
-            commands=_install_commands(pkg),
-            kind="missing_package",
-            text_en=(
-                f"Missing package/class `{pkg}`: install it, then rebuild "
-                "(or switch to an existing package)."
-            ),
-        )
-
-    missing_name = _missing_file_name(normalized)
-    if missing_name:
-        hint = _missing_file_hint(missing_name)
+    for rule in _RULES:
+        context = rule.match(normalized)
+        if not context:
+            continue
+        hint = rule.build(context)
         if hint is not None:
             return hint
-
-    font = _FONT_NOT_FOUND_RE.search(normalized)
-    if font and "Missing character" not in normalized:
-        family = font.group(1).strip()
-        return Hint(
-            text=f"字体/字形 `{family}` 不可用：检查字体是否安装，或改用 fontspec 可用的字族。",
-            commands=(
-                f"fc-list | grep -i '{family}'",
-                "initexmf --update-fndb",
-            ),
-            kind="missing_font",
-            text_en=(
-                f"Font/glyph `{family}` is unavailable: check the font installation "
-                "or switch to a fontspec-compatible family."
-            ),
-        )
-
-    unicode_match = _UNICODE_RE.search(normalized)
-    if unicode_match:
-        char, codepoint = unicode_match.group(1), unicode_match.group(2)
-        return Hint(
-            text=(
-                f"pdflatex 没有为 `{char}` (U+{codepoint}) 配置字形：改用 XeLaTeX/LuaLaTeX，"
-                "或把它替换成 ASCII 的 LaTeX 命令（如 \\ensuremath{\\alpha}）。"
-            ),
-            commands=("xelatex <主文件>.tex", "lualatex <主文件>.tex"),
-            kind="unicode",
-            text_en=(
-                f"pdflatex has no glyph set up for `{char}` (U+{codepoint}): "
-                "switch to XeLaTeX/LuaLaTeX, or replace it with an ASCII LaTeX "
-                "command (e.g. \\ensuremath{\\alpha})."
-            ),
-        )
-
-    missing_char = _MISSING_CHAR_RE.search(normalized)
-    if missing_char:
-        char = missing_char.group(1)
-        return Hint(
-            text=(
-                f"当前字体里没有字符 `{char}`：换用包含该字形的字体，"
-                "或用 \\newunicodechar 显式映射。"
-            ),
-            commands=("\\usepackage{newunicodechar}", f"\\newunicodechar{{{char}}}{{<LaTeX 写法>}}"),
-            kind="missing_glyph",
-            text_en=(
-                f"Current font has no glyph for `{char}`: use a font that contains it, "
-                "or map it explicitly with \\newunicodechar."
-            ),
-        )
-
-    citation = _UNDEFINED_CITATION_RE.search(normalized) or _UNDEFINED_CITATION_ZH_RE.search(normalized)
-    if citation:
-        return Hint(
-            text=(
-                f"引用键 `{citation.group(1)}` 未定义：检查 .bib 里是否存在该键，"
-                "并确认 biber/bibtex 已经成功运行。"
-            ),
-            commands=("biber <jobname>", "bibtex <jobname>"),
-            kind="undefined_citation",
-            text_en=(
-                f"Citation key `{citation.group(1)}` is undefined: check .bib for that key "
-                "and confirm biber/bibtex ran successfully."
-            ),
-        )
-
-    reference = _UNDEFINED_REFERENCE_RE.search(normalized) or _UNDEFINED_REFERENCE_ZH_RE.search(normalized)
-    if reference:
-        return Hint(
-            text=(
-                f"交叉引用 `{reference.group(1)}` 未定义：确认 \\label 拼写，"
-                "并再编译一轮让 .aux 收敛。"
-            ),
-            commands=("xelatex <主文件>.tex  # 再跑一轮",),
-            kind="undefined_reference",
-            text_en=(
-                f"Cross-reference `{reference.group(1)}` is undefined: check \\label spelling "
-                "and rerun compilation to converge .aux."
-            ),
-        )
-
-    env = _UNDEFINED_ENV_RE.search(normalized)
-    if env:
-        return Hint(
-            text=(
-                f"环境 `{env.group(1)}` 未定义：确认提供该环境的宏包已 \\usepackage，"
-                "或检查环境名拼写/大小写。"
-            ),
-            kind="undefined_environment",
-            text_en=(
-                f"Environment `{env.group(1)}` is undefined: load the package that provides it, "
-                "or check the environment name/case."
-            ),
-        )
-
-    bib = _BIB_DB_RE.search(normalized)
-    if bib:
-        name = bib.group(1)
-        stem = name[:-4] if name.lower().endswith(".bib") else name
-        return Hint(
-            text=f"找不到文献数据库 `{name}`：确认 .bib 路径（相对主文件目录）与文件名大小写。",
-            commands=(f"kpsewhich {stem}.bib",),
-            kind="missing_bib",
-            text_en=f"Bibliography database `{name}` not found: check the .bib path (relative to the main file) and filename case.",
-        )
-
-    if "Too many unprocessed floats" in normalized:
-        return Hint(
-            text="浮动体太多：在章节间加 \\clearpage，或使用 [H] 位置与 float 宏包。",
-            commands=("\\usepackage{float}", "\\clearpage"),
-            kind="float_overflow",
-            text_en="Too many unprocessed floats: add \\clearpage between sections, or use the float package with [H].",
-        )
-
-    if "TeX capacity exceeded" in normalized:
-        return Hint(
-            text="TeX 内存/栈耗尽：先排查无限递归或超长表格；确属容量问题再调高 main_memory / extra_mem_top。",
-            commands=("initexmf --edit-config-file=texmf.cfg", "fmtutil-sys --all"),
-            kind="capacity",
-            text_en="TeX capacity exceeded: look for infinite recursion or oversized tables; only then raise main_memory / extra_mem_top.",
-        )
-
-    if "No pages of output" in normalized:
-        return Hint(
-            text="没有输出任何页面：检查 \\documentclass/\\begin{document} 是否完整，以及是否误用了 \\includeonly。",
-            kind="no_output",
-            text_en="No pages were produced: check \\documentclass/\\begin{document} and whether \\includeonly is too restrictive.",
-        )
-
-    if "Runaway argument" in normalized or "File ended while scanning" in normalized:
-        return Hint(
-            text="括号/环境没有闭合：从报错行往前找最近的未配对 { } 或 \\begin/\\end。",
-            kind="runaway",
-            text_en="Unbalanced braces/environment: look backwards from the error line for the nearest unmatched { } or \\begin/\\end.",
-        )
-
-    if "Missing $ inserted" in normalized:
-        return Hint(
-            text="数学模式不匹配：检查漏写的 $、\\text 中的特殊字符，或 \\ensuremath 的使用。",
-            kind="math_mode",
-            text_en="Math mode mismatch: check for a missing $, special characters inside \\text, or \\ensuremath usage.",
-        )
-
-    if "Emergency stop" in normalized or "Fatal error occurred" in normalized:
-        return Hint(
-            text="编译被致命错误中断：先修复日志里 Emergency stop 上方的第一条错误。",
-            kind="fatal",
-            text_en="Compilation was stopped by a fatal error: fix the first error above Emergency stop.",
-        )
-
-    if _UNDEFINED_CONTROL_RE.search(normalized):
-        # 真实日志是 ``! Undefined control sequence.`` 后跟 ``l.5 ... \badcmd``；
-        # 直接取全文第一个 \xxx 会误抓 \ref 之类已定义命令，优先取 l.N 行的最后一个。
-        line_match = re.search(r"l\.?\d+\s+(.*)", normalized)
-        target = line_match.group(1) if line_match else normalized
-        controls = _CONTROL_NAME_RE.findall(target)
-        name = controls[-1] if controls else "<命令>"
-        return Hint(
-            text=(
-                f"未定义命令 `\\{name}`：检查拼写/大小写；若是宏包提供的命令，"
-                "确认对应 \\usepackage 已加载。"
-            ),
-            commands=(
-                f"grep -R \"\\\\{name}\" *.tex",
-                f"tlmgr search --global --file {name}.sty",
-            ),
-            kind="undefined_control",
-            text_en=(
-                f"Undefined command `\\{name}`: check spelling/case; if a package provides it, "
-                "confirm the matching \\usepackage is loaded."
-            ),
-        )
-
-    if _END_MISMATCH_RE.search(normalized):
-        return Hint(
-            text=(
-                "\\begin{document} 被错误的 \\end{...} 提前关闭：检查环境嵌套，"
-                "确保每个 \\begin 都有同名 \\end。"
-            ),
-            kind="end_mismatch",
-            text_en="\\begin{document} was ended by a wrong \\end{...}: check environment nesting so every \\begin has a matching \\end.",
-        )
-
-    if "Invalid UTF-8 byte sequence" in normalized:
-        return Hint(
-            text="源码不是有效 UTF-8：把报错文件另存为 UTF-8（无 BOM），并检查是否混入 GBK 字符。",
-            commands=("file --mime-encoding <主文件>",),
-            kind="invalid_utf8",
-            text_en="Source is not valid UTF-8: save the offending file as UTF-8 (no BOM) and check for mixed GBK characters.",
-        )
-
-    if "Extra alignment tab" in normalized or "Misplaced alignment tab" in normalized:
-        return Hint(
-            text="表格列数不匹配：检查每行 `&` 数量是否与列格式（如 `lcr`）一致。",
-            kind="alignment_tab",
-            text_en="Column count mismatch: check that each row has the same number of `&` as the column spec (e.g. lcr).",
-        )
-
-    if "Missing number, treated as zero" in normalized:
-        return Hint(
-            text="长度/数字参数缺失：检查 \\vspace、\\hspace、\\includegraphics[width=...] 等是否漏写数字或单位。",
-            kind="missing_number",
-            text_en="Missing length/number argument: check \\vspace, \\hspace, \\includegraphics[width=...] for a missing number or unit.",
-        )
-
-    if "missing \\item" in normalized.lower():
-        return Hint(
-            text="列表环境里缺少 \\item：在 itemize/enumerate 的每个条目开头补 \\item。",
-            kind="missing_item",
-            text_en="Missing \\item in a list: add \\item at the start of each itemize/enumerate entry.",
-        )
-
-    package_error = _PACKAGE_ERROR_RE.search(normalized)
-    if package_error:
-        return Hint(
-            text=(
-                f"宏包 `{package_error.group(1)}` 报错：查看该行上下文与宏包选项，"
-                "必要时升级/降级该宏包。"
-            ),
-            kind="package_error",
-            text_en=(
-                f"Package `{package_error.group(1)}` error: inspect the surrounding lines "
-                "and package options; upgrade/downgrade if needed."
-            ),
-        )
-
-    for key, value in collect_hints().items():
-        if _normalize(key) in normalized:
-            return Hint(
-                text=value,
-                kind="log_hint",
-                text_en=_LOG_HINT_EN.get(key, ""),
-            )
     return None
 
 
@@ -530,4 +671,3 @@ def hint_for_entry(
         root_file=root_file or entry_file or None,
         language=language,
     )
-

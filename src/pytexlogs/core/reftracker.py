@@ -12,18 +12,12 @@ from .state import PROJECT_STATE_FILENAME, ProjectStateStore
 
 __all__ = [
     "RefChangeTracker",
-    "citation_command_re",
-    "input_re",
 ]
-
-input_re = re.compile(r"\\(?:input|include)\{(.+?)\}")
-citation_command_re = re.compile(
-    r"\\(?:cite|upcite|citet|citep|parencite|textcite|footcite|smartcite|autocite)\{([^}]+)\}",
-    re.IGNORECASE,
-)
 
 #: .aux 中三种记录引用键的写法。原实现每次提取都在函数体内重新 compile，
 #: 这里提到模块级只编译一次，并把顺序固定为 citation→abx@aux@cite→bibcite。
+#: （0.6.1 删除未使用的 ``input_re`` / ``citation_command_re``：全库无调用者，
+#:   导出它们只会让外部以为这是稳定 API。）
 _AUX_CITE_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"\\citation\{([^}]+)\}"),
     re.compile(r"\\abx@aux@cite\{[^}]*\}\{([^}]+)\}"),
@@ -81,11 +75,14 @@ class RefChangeTracker:
 
         aux_path = self.auxdir / f"{self.jobname}.aux"
         if aux_path.exists():
+            # 逐行流式扫描：大 .aux（>10 MB）不必整份读入内存，
+            # 命中任一引用标记即返回。
             try:
-                text = aux_path.read_text(encoding="utf-8", errors="ignore")
-                if "\\bibdata" in text or "\\citation" in text or "\\bibcite" in text:
-                    return "bibtex"
-            except Exception as _e:
+                with aux_path.open(encoding="utf-8", errors="ignore") as handle:
+                    for line in handle:
+                        if "\\bibdata" in line or "\\citation" in line or "\\bibcite" in line:
+                            return "bibtex"
+            except OSError as _e:
                 logger.debug("读取 aux 文件失败，降级为 unknown 模式: %s", _e)
 
         return "unknown"

@@ -5,6 +5,10 @@
   - parse_auxdir(jobname, auxdir)：一键跑整个 latexmk/PyTeX 辅助目录；
   - filter_severity(entries, min_level=WARNING)：按严重度裁剪日志条目；
   - aggregate_stats(obj, group_by="category")：聚合统计，直接给直方图/CSV 报表用。
+
+0.6.1 起，"step/后缀 → 解析器"的映射只由 :class:`LogParserRegistry` 维护，
+本模块不再自带第二份 ``_ENGINE_DEFAULT_PARSER`` 表（历史问题是两表漂移，
+`engine="asy"` 会静默回退到 LaTeX 解析器并返回空结果）。
 """
 
 from collections import Counter
@@ -14,16 +18,7 @@ from typing import Any, Literal, overload
 
 from .core.manager import LogParserManager, ToolResult
 from .core.models import BaseLogParser, LogEntry, LogLevel, ParsedLog, ParsedPipelineReport
-from .parsers.asymptote import AsymptoteParser
-from .parsers.biber import BiberParser
-from .parsers.bibtex import BibtexParser
-from .parsers.glossaries import GlossariesParser
-from .parsers.latex import LatexLogParser
-from .parsers.makeindex import MakeindexParser
-from .parsers.minted import MintedParser
-from .parsers.nomencl import NomenclParser
-from .parsers.pythontex import PythontexParser
-from .parsers.xindy import XindyParser
+from .core.registry import LogParserRegistry
 
 __all__ = [
     "aggregate_stats",
@@ -33,47 +28,45 @@ __all__ = [
     "parse_log_text",
 ]
 
+#: spec 重要性排序：同后缀命中多个解析器时，优先高重要性，其次按注册顺序。
+_IMPORTANCE_RANK: dict[str, int] = {"high": 0, "medium": 1, "low": 2}
 
-_ENGINE_DEFAULT_PARSER: dict[str, type[BaseLogParser]] = {
-    "pdflatex": LatexLogParser,
-    "xelatex": LatexLogParser,
-    "lualatex": LatexLogParser,
-    "latex": LatexLogParser,
-    "bibtex": BibtexParser,
-    "biber": BiberParser,
-    "makeindex": MakeindexParser,
-    "xindy": XindyParser,
-    "makeglossaries": GlossariesParser,
-    "glossaries": GlossariesParser,
-    "nomencl": NomenclParser,
-    "pythontex": PythontexParser,
-    "minted": MintedParser,
-    "asymptote": AsymptoteParser,
-}
+
+def _registry() -> LogParserRegistry:
+    return LogParserRegistry.get_instance()
+
+
+def _parser_for_engine(engine: str) -> type[BaseLogParser]:
+    """按 step 名取解析器；名字非法时直接报错，不再静默回退。"""
+    spec = _registry().lookup(engine.lower())
+    if spec is None:
+        available = ", ".join(_registry().all_step_names())
+        raise ValueError(f"未知引擎 {engine!r}；可选：{available}")
+    return spec.parser_cls
 
 
 def _guess_parser_from_path(path: Path) -> type[BaseLogParser]:
-    """根据日志文件后缀名/小写 stem 猜最合适的 parser。找不到就回退 LatexLogParser。"""
+    """按日志文件后缀在注册表里找解析器；找不到时回退到 LaTeX 解析器。
+
+    说明：
+    - 后缀匹配一律以注册表为准（最长后缀优先），不再维护第二份映射表；
+    - ``.blg`` 在 bibtex/biber 之间本身有歧义，默认取先注册的 bibtex；
+      需要精确判定时请显式传 ``engine=``；
+    - ``.bcf`` 只属于 biber（0.6.1 起已从 bibtex 的后缀列表移除）。
+    """
     name = path.name.lower()
-    if name.endswith(".blg"):
-        return _ENGINE_DEFAULT_PARSER["bibtex"]
-    if name.endswith((".bcf", ".blg-biber")):
-        return _ENGINE_DEFAULT_PARSER["biber"]
-    if name.endswith((".idx", ".ind", ".ilg")):
-        return _ENGINE_DEFAULT_PARSER["makeindex"]
-    if name.endswith((".xdy", ".xlg")):
-        return _ENGINE_DEFAULT_PARSER["xindy"]
-    if name.endswith((".glo", ".gls")) or "glossary" in name:
-        return _ENGINE_DEFAULT_PARSER["glossaries"]
-    if "nomencl" in name or name.endswith((".nls", ".nlo")):
-        return _ENGINE_DEFAULT_PARSER["nomencl"]
-    if "pythontex" in name:
-        return _ENGINE_DEFAULT_PARSER["pythontex"]
-    if "minted" in name or ".pyg" in name:
-        return _ENGINE_DEFAULT_PARSER["minted"]
-    if "asy" in name or name.endswith(".log") and (path.stem.lower().endswith("_asy")):
-        return _ENGINE_DEFAULT_PARSER["asymptote"]
-    return _ENGINE_DEFAULT_PARSER["pdflatex"]
+    registry = _registry()
+    for suffix in registry.all_suffixes():
+        if not name.endswith(suffix):
+            continue
+        specs = sorted(
+            registry.lookup_by_suffix(suffix),
+            key=lambda s: _IMPORTANCE_RANK.get(s.importance, 3),
+        )
+        if specs:
+            return specs[0].parser_cls
+
+    return _parser_for_engine("pdflatex")
 
 
 def parse_log_file(
@@ -90,11 +83,7 @@ def parse_log_file(
         root_file: 可选，传给 parser 的主 .tex 路径（与 parse_file 语义一致）
     """
     p = Path(path)
-    parser_cls: type[BaseLogParser]
-    if engine is not None:
-        parser_cls = _ENGINE_DEFAULT_PARSER.get(engine.lower(), _ENGINE_DEFAULT_PARSER["pdflatex"])
-    else:
-        parser_cls = _guess_parser_from_path(p)
+    parser_cls = _parser_for_engine(engine) if engine is not None else _guess_parser_from_path(p)
     parser = parser_cls(root_file=root_file)
     return parser.parse_file(p, root_file=root_file)
 
@@ -106,8 +95,7 @@ def parse_log_text(
     root_file: str | None = None,
 ) -> ParsedLog:
     """一行代码解析日志字符串（用于 captured_outputs / subprocess.stdout 场景）。"""
-    parser_cls = _ENGINE_DEFAULT_PARSER.get(engine.lower(), _ENGINE_DEFAULT_PARSER["pdflatex"])
-    parser = parser_cls(root_file=root_file)
+    parser = _parser_for_engine(engine)(root_file=root_file)
     return parser.parse(text, root_file=root_file)
 
 
@@ -135,7 +123,7 @@ def filter_severity(
     *,
     min_level: LogLevel = LogLevel.WARNING,
 ) -> list[LogEntry]:
-    """按严重度过滤条目：保留 entry.level <= min_level（ERROR < WARNING < INFO）。"""
+    """按严重度过滤条目：保留 entry.level <= min_level（ERROR < WARNING < INFO < TYPESET）。"""
     return [e for e in entries if not (min_level < e.level)]
 
 
@@ -171,7 +159,7 @@ def aggregate_stats(
     """对一组 ToolResult 或整个 ParsedPipelineReport 聚合统计。
 
     group_by="category" → key 是 category（bibliography/index/code/...），value 是条目数
-    group_by="level" → key 是 level.value（error/warning/info/...），value 是条目数
+    group_by="level" → key 是 level.value（error/warning/typesetting/...），value 是条目数
     group_by="parser" → key 是 tool_name（pdflatex/bibtex/...），value 是条目数
     """
     if isinstance(obj, ParsedPipelineReport):

@@ -79,7 +79,7 @@ def test_engine_result_exposes_errors_in_end_to_end_run():
         if p.exists():
             shutil.copy(p, aux / name)
 
-    r = run_pipeline("sample", aux, root_file="sample", quiet=True)
+    r = run_pipeline("sample", aux, root_file="sample", print_terminal=False)
     any_entries = False
     for tr in r.tool_results:
         total = len(tr.errors) + len(tr.warnings) + len(tr.info)

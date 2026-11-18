@@ -1,7 +1,6 @@
 """0.5.0 新增能力回归：报告写盘、步骤规划、hint、导出过滤、CLI 参数语义。"""
 
 import json
-import warnings
 from pathlib import Path
 
 import pytest
@@ -40,16 +39,13 @@ def test_write_report_file_creates_json_and_no_tmp(tmp_path: Path) -> None:
     assert list(aux.glob("*.tmp")) == []
 
 
-def test_legacy_write_report_kwarg_still_works(tmp_path: Path) -> None:
-    """旧名字 write_report=True 仍可用（发 DeprecationWarning 而不 TypeError）。"""
+def test_legacy_write_report_kwarg_is_rejected(tmp_path: Path) -> None:
+    """0.6.0 删除了 write_report 旧名：传它必须 TypeError，而不是静默接受。"""
     aux = tmp_path / "aux"
     aux.mkdir()
     _write(aux / "main.log", "! Undefined control sequence.\n")
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
+    with pytest.raises(TypeError):
         run_pipeline(jobname="main", auxdir=aux, print_terminal=False, write_report=True)
-    assert any(issubclass(w.category, DeprecationWarning) for w in caught)
-    assert (aux / "main.pytexmk-report.json").exists()
 
 
 def test_plan_steps_avoids_duplicate_blg(tmp_path: Path) -> None:

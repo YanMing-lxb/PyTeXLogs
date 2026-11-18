@@ -8,7 +8,9 @@ from pathlib import Path
 from typing import Any
 
 from .models import (
+    REPORT_SCHEMA_VERSION,
     ConfigIgnoredReport,
+    LogLevel,
     ParsedPipelineReport,
     PipelineMeta,
     ReferencesReport,
@@ -18,83 +20,58 @@ from .models import (
 
 logger = logging.getLogger(__name__)
 
-_VALID_LEVELS = {"error", "warning", "typesetting", "info", "debug"}
+#: 合法等级集合直接由 :class:`LogLevel` 派生，避免白名单与枚举漂移
+#: （历史问题是白名单漏掉 ``font/graphic/page``，导致报告回读时被降级成 ``info``）。
+_VALID_LEVELS: frozenset[str] = frozenset(lv.value for lv in LogLevel)
+
+#: 需要递归还原成 dataclass 的嵌套字段 → 目标类型。
+_NESTED_FIELDS: dict[str, type[Any]] = {
+    "pipeline": PipelineMeta,
+    "references": ReferencesReport,
+    "config_ignored": ConfigIgnoredReport,
+}
+
+#: 需要递归还原的元素字段 → 元素类型。
+_LIST_FIELDS: dict[str, type[Any]] = {
+    "entries": ReportEntry,
+    "suppressed_entries": ReportEntry,
+    "tool_results": ToolResultReport,
+}
 
 
 def _from_dict_simple(cls: type[Any], d: dict[str, Any]) -> Any:
-    """递归构造 dataclass 实例，未知字段入 custom_fields（若有）。"""
+    """从 dict 构造 dataclass 实例；未知字段收进 ``custom_fields`` 以免信息丢失。
+
+    0.6.1 起不再用 ``try: cls(**known) except TypeError`` 兜底：模型里所有字段
+    都有默认值，缺字段本该走默认值，``TypeError`` 只说明调用方传了脏数据。旧兜底
+    会把这类错误吞掉，换来一个字段全空但"看起来正常"的对象。
+    """
     cls_fields = {f.name for f in dataclasses.fields(cls)}
-    known: dict[str, Any] = {}
-    unknown: dict[str, Any] = {}
+    known: dict[str, Any] = {k: v for k, v in d.items() if k in cls_fields}
+    unknown: dict[str, Any] = {k: v for k, v in d.items() if k not in cls_fields}
 
-    for k, v in d.items():
-        if k in cls_fields:
-            known[k] = v
-        else:
-            unknown[k] = v
-
-    for fname in cls_fields:
-        if fname not in known:
+    for fname, value in known.items():
+        nested_cls = _NESTED_FIELDS.get(fname)
+        if nested_cls is not None and isinstance(value, dict):
+            known[fname] = _from_dict_simple(nested_cls, value)
             continue
-        fval = known[fname]
-
-        if isinstance(fval, dict):
-            nested_cls: type[Any] | None = None
-            if fname == "pipeline":
-                nested_cls = PipelineMeta
-            elif fname == "references":
-                nested_cls = ReferencesReport
-            elif fname == "config_ignored":
-                nested_cls = ConfigIgnoredReport
-            if nested_cls is not None:
-                known[fname] = _from_dict_simple(nested_cls, fval)
-
-        if fname == "entries" and isinstance(fval, list):
+        item_cls = _LIST_FIELDS.get(fname)
+        if item_cls is not None and isinstance(value, list):
             known[fname] = [
-                _from_dict_simple(ReportEntry, item) if isinstance(item, dict) else item
-                for item in fval
-            ]
-        if fname == "suppressed_entries" and isinstance(fval, list):
-            known[fname] = [
-                _from_dict_simple(ReportEntry, item) if isinstance(item, dict) else item
-                for item in fval
-            ]
-        if fname == "tool_results" and isinstance(fval, list):
-            known[fname] = [
-                _from_dict_simple(ToolResultReport, item) if isinstance(item, dict) else item
-                for item in fval
+                _from_dict_simple(item_cls, item) if isinstance(item, dict) else item
+                for item in value
             ]
 
-    if cls is ReportEntry and "level" in known:
-        lvl = known["level"]
-        if lvl not in _VALID_LEVELS:
-            if lvl:
-                logger.warning("unknown level %s", lvl)
+    if cls is ReportEntry:
+        level = known.get("level")
+        if level not in _VALID_LEVELS:
+            if level:
+                logger.warning("报告中出现未知等级 %s，按 info 处理", level)
             known["level"] = "info"
 
-    try:
-        instance = cls(**known)
-    except TypeError:
-        defaults: dict[str, Any] = {}
-        for f in dataclasses.fields(cls):
-            if f.name not in known:
-                if f.default is not dataclasses.MISSING:
-                    defaults[f.name] = f.default
-                elif f.default_factory is not dataclasses.MISSING:
-                    defaults[f.name] = f.default_factory()
-        combined = {**defaults, **known}
-        instance = cls(**combined)
-
-    if "custom_fields" in cls_fields and unknown:
-        key = f"_unknown_keys_{cls.__name__}"
-        existing = instance.custom_fields.get(key, [])
-        if isinstance(existing, list):
-            existing.extend(unknown.keys())
-            instance.custom_fields[key] = existing
-            for uk, uv in unknown.items():
-                if uk not in instance.custom_fields:
-                    instance.custom_fields[uk] = uv
-
+    instance = cls(**known)
+    if unknown and "custom_fields" in cls_fields:
+        instance.custom_fields.update(unknown)
     return instance
 
 
@@ -149,7 +126,10 @@ def load_report(path: str | Path) -> ParsedPipelineReport:
     except Exception as e:
         logger.error("加载报告文件失败: %s - %s", path, e)
         raise
-    sv = d.get("schema_version", 1)
-    if sv > 1:
-        logger.warning("schema_version %d 高于当前 1，部分字段可能被忽略", sv)
+    sv = d.get("schema_version", REPORT_SCHEMA_VERSION)
+    if isinstance(sv, int) and sv > REPORT_SCHEMA_VERSION:
+        logger.warning(
+            "schema_version %d 高于当前 %d，部分字段可能被忽略",
+            sv, REPORT_SCHEMA_VERSION,
+        )
     return dict_to_report(d)

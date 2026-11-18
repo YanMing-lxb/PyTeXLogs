@@ -23,7 +23,13 @@ from pathlib import Path
 from typing import Any
 
 from ..core.engine import run_pipeline
-from ..core.models import LogEntry, LogLevel, ParsedLog, ToolResult, ToolResultReport, ToolResultStats
+from ..core.models import (
+    LogEntry,
+    LogLevel,
+    ParsedLog,
+    ToolResultReport,
+    level_from_value,
+)
 from ..display import print_summary, set_summary_language
 from ..exporters.csv_exporter import to_csv
 from ..exporters.json_exporter import filter_by_level, to_json
@@ -40,48 +46,75 @@ __all__ = ["main"]
 
 logger = logging.getLogger("pytexlogs.cli")
 
-_LEVEL_STRING_TO_ENUM = {
-    "error": LogLevel.ERROR,
-    "warning": LogLevel.WARNING,
-    "typesetting": LogLevel.INFO,
-    "font": LogLevel.INFO,
-    "graphic": LogLevel.INFO,
-    "page": LogLevel.INFO,
-    "info": LogLevel.INFO,
+#: CLI 面向用户的提示文案（中英双语；`--lang en` 下不应再冒出中文）。
+_MSG: dict[str, dict[str, str]] = {
+    "zh": {
+        "explain_empty": "请给出一段日志文本，例如：pytexlogs explain 'Missing character'",
+        "explain_none": "没有匹配到内置建议；可先用 `pytexlogs <log>` 查看条目上下文。",
+        "no_results": "（无解析结果。请传入 .log / .blg 或 aux 目录）",
+        "no_new_entries": "（没有新增条目：--baseline/--severity 过滤后为空）",
+        "baseline_missing": "基线报告不存在：{path}（先用 --output 导出一次 JSON 报告）",
+        "cli_error": "pytexlogs 执行失败：{type}: {msg}（设置 PYTEXLOGS_DEBUG=1 可查看堆栈）",
+    },
+    "en": {
+        "explain_empty": "Provide a log snippet, e.g. pytexlogs explain 'Missing character'",
+        "explain_none": "No built-in hint matched; run `pytexlogs <log>` to inspect entry context first.",
+        "no_results": "(no parse result: pass a .log / .blg file or an aux directory)",
+        "no_new_entries": "(no new entries: everything was filtered out by --baseline/--severity)",
+        "baseline_missing": "Baseline report not found: {path} (export a JSON report with --output first)",
+        "cli_error": "pytexlogs failed: {type}: {msg} (set PYTEXLOGS_DEBUG=1 for a traceback)",
+    },
 }
 
 
-def _tool_result_report_to_tool_result(trr: ToolResultReport) -> ToolResult:
-    """将 ToolResultReport 转换为 ToolResult（统一数据类型）。"""
-    entries: list[LogEntry] = []
-    for e in trr.entries:
-        level = _LEVEL_STRING_TO_ENUM.get(str(e.level), LogLevel.INFO)
-        entries.append(LogEntry(
-            level=level,
-            file=e.file or "",
-            line=e.line or 0,
-            text=e.text or "",
-            error_pos_text=e.error_pos_text or "",
-        ))
-    error_count = sum(1 for e in entries if e.level == LogLevel.ERROR)
-    warning_count = sum(1 for e in entries if e.level == LogLevel.WARNING)
-    importance: str = trr.importance
-    if error_count > 0:
-        importance = "high"
-    elif warning_count > 0:
-        importance = "medium"
-    return ToolResult(
-        tool_name=trr.tool_name,
-        category=trr.category,
-        importance=importance,
-        source_path=trr.source_path or "",
-        raw_text="",
-        entries=entries,
-        stats=ToolResultStats(
-            entries_count=len(entries),
-            stats=trr.stats if trr.stats else {"error": error_count, "warning": warning_count},
-        ),
-    )
+def _msg(key: str, lang: str | None = None, **fields: str) -> str:
+    """取本地化提示文案；未知语言回退中文。"""
+    table = _MSG.get((lang or "zh").lower(), _MSG["zh"])
+    return table[key].format(**fields)
+
+
+def _configure_logging() -> None:
+    """CLI 入口配置一次 stderr 日志，保证异常至少有可见输出。
+
+    0.5 的问题：``except Exception`` 里只调 ``logger.exception``，但全库从未
+    配置 logging，导致用户只看到一个退出码 2、没有任何诊断信息。
+    """
+    if logging.getLogger("pytexlogs").handlers:
+        return
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
+    logger.addHandler(handler)
+    logger.propagate = False
+    logger.setLevel(logging.DEBUG if os.environ.get("PYTEXLOGS_DEBUG") else logging.WARNING)
+
+
+def _as_parsed_logs(results: list[ToolResultReport]) -> list[ParsedLog]:
+    """报告模型 → 展示模型（``print_summary`` 需要枚举等级的 ``LogEntry``）。
+
+    只服务展示层：导出（json/csv/sarif）与聚合都直接用报告模型，不再经这一层，
+    因此这里只做一次最小转换，不承担任何统计/排序职责。
+    """
+    return [
+        ParsedLog(
+            entries=[
+                LogEntry(
+                    level=level_from_value(e.level),
+                    file=e.file or "",
+                    line=e.line or 0,
+                    text=e.text or "",
+                    error_pos_text=e.error_pos_text or "",
+                )
+                for e in tr.entries
+            ],
+            raw_text="",
+            source_path=tr.source_path or "",
+            tool_name=tr.tool_name,
+            category=tr.category,
+            importance=tr.importance,
+            stats=dict(tr.stats),
+        )
+        for tr in results
+    ]
 
 
 def _iter_project_dirs(root: Path) -> list[Path]:
@@ -96,11 +129,17 @@ def _iter_project_dirs(root: Path) -> list[Path]:
     ]
 
 
-def _collect_from_paths(paths: Sequence[str], args: Any) -> list[ToolResult]:
-    """从输入路径（文件/目录）收集解析结果，统一返回 ToolResult 列表。"""
+def _collect_from_paths(paths: Sequence[str], args: Any) -> list[ToolResultReport]:
+    """从输入路径（文件/目录）收集解析结果。
+
+    CLI 的规范类型是**报告模型**（``ToolResultReport``）：``run_pipeline`` 本来
+    就产出它，单文件解析（``easy.parse_log_file``）再经
+    ``ToolResultReport.from_parsed_log`` 折进来。0.5 在这里多绕了一层
+    ``ToolResultReport → ToolResult → 再转回 dict``，同一份数据被抄了三遍。
+    """
     from ..easy import parse_log_file as _parse_log_file
 
-    all_tool_results: list[ToolResult] = []
+    all_results: list[ToolResultReport] = []
     for raw in paths or []:
         p = Path(raw)
         if p.is_dir():
@@ -117,27 +156,14 @@ def _collect_from_paths(paths: Sequence[str], args: Any) -> list[ToolResult]:
                     print_terminal=False,
                     root_file=str(args.root_file) if getattr(args, "root_file", None) else None,
                 )
-                for trr in results.tool_results:
-                    all_tool_results.append(_tool_result_report_to_tool_result(trr))
+                all_results.extend(results.tool_results)
         elif p.is_file():
             root = str(args.root_file) if getattr(args, "root_file", None) else None
             parsed = _parse_log_file(p, root_file=root)
-            tr = ToolResult(
-                tool_name=p.suffix.lstrip(".") or "unknown",
-                category="compile",
-                importance="high" if parsed.errors else "medium" if parsed.warnings else "low",
-                source_path=str(p),
-                raw_text=parsed.raw_text,
-                entries=parsed.entries,
-                stats=ToolResultStats(
-                    entries_count=len(parsed.entries),
-                    stats={"error": len(parsed.errors), "warning": len(parsed.warnings)},
-                ),
-            )
-            all_tool_results.append(tr)
+            all_results.append(ToolResultReport.from_parsed_log(parsed))
         else:
             print(f"warning: {p} 不是文件也不是目录，跳过", file=sys.stderr)
-    return all_tool_results
+    return all_results
 
 
 def _find_tex_in_dir(d: Path) -> str | None:
@@ -201,22 +227,20 @@ def _open_entries(entries_info: Sequence[Any], args: Any) -> None:
         logger.info("没有 ERROR 条目可跳转")
 
 
-def _aggregate_stats(results: list[ToolResult], group_by: str) -> dict[str, int]:
-    """聚合 ToolResult 的统计信息。"""
+def _aggregate_stats(results: list[ToolResultReport], group_by: str) -> dict[str, int]:
+    """聚合报告结果的统计信息（按 category / parser / level 计数）。"""
     stats: dict[str, int] = {}
     for r in results:
+        if group_by == "level":
+            for name in ("error", "warning", "typesetting", "info"):
+                stats[name] = stats.get(name, 0) + sum(
+                    1 for e in r.entries if e.level == name
+                )
+            continue
         if group_by == "category":
             key = r.category or "unknown"
         elif group_by == "parser":
             key = r.tool_name or "unknown"
-        elif group_by == "level":
-            err_count = r.stats.stats.get("error", 0)
-            warn_count = r.stats.stats.get("warning", 0)
-            info_count = r.stats.stats.get("info", 0)
-            stats["error"] = stats.get("error", 0) + err_count
-            stats["warning"] = stats.get("warning", 0) + warn_count
-            stats["info"] = stats.get("info", 0) + info_count
-            continue
         else:
             key = "unknown"
         stats[key] = stats.get(key, 0) + 1
@@ -234,7 +258,9 @@ def _entry_key(level: str, file: str | None, line: int | None, text: str) -> str
     return f"{level}|{file or ''}|{normalized}"
 
 
-def _filter_against_baseline(results: list[ToolResult], baseline_path: Path) -> list[ToolResult]:
+def _filter_against_baseline(
+    results: list[ToolResultReport], baseline_path: Path
+) -> list[ToolResultReport]:
     """只保留「上次报告里没有」的条目（新增或文本变化的回归）。"""
     from ..core.report import load_report
 
@@ -244,25 +270,17 @@ def _filter_against_baseline(results: list[ToolResult], baseline_path: Path) -> 
         for e in tr.entries:
             seen.add(_entry_key(str(e.level), e.file, e.line, e.text))
 
-    filtered: list[ToolResult] = []
+    filtered: list[ToolResultReport] = []
     for tr in results:
         kept = [
             e for e in tr.entries
-            if _entry_key(
-                e.level.value if hasattr(e.level, "value") else str(e.level),
-                e.file, e.line, e.text,
-            ) not in seen
+            if _entry_key(str(e.level), e.file, e.line, e.text) not in seen
         ]
-        clone = dataclasses.replace(tr, entries=kept)
-        clone.stats = ToolResultStats(
-            entries_count=len(kept),
-            stats={
-                **tr.stats.stats,
-                "error": sum(1 for e in kept if e.level == LogLevel.ERROR),
-                "warning": sum(1 for e in kept if e.level == LogLevel.WARNING),
-            },
-        )
-        filtered.append(clone)
+        stats = dict(tr.stats)
+        stats["entries_count"] = len(kept)
+        stats["error"] = sum(1 for e in kept if e.level == LogLevel.ERROR.value)
+        stats["warning"] = sum(1 for e in kept if e.level == LogLevel.WARNING.value)
+        filtered.append(dataclasses.replace(tr, entries=kept, stats=stats))
     return filtered
 
 
@@ -280,6 +298,7 @@ def _default_lang() -> str:
 
 def main(argv: list[str] | None = None) -> int:
     """CLI 主函数：解析参数、执行子命令、返回退出码。"""
+    _configure_logging()
     parser = build_parser()
     try:
         args = parser.parse_args(argv)
@@ -322,7 +341,7 @@ def main(argv: list[str] | None = None) -> int:
 
             text = " ".join(getattr(args, "text", []) or [])
             if not text:
-                print("请给出一段日志文本，例如：pytexlogs explain 'Missing character'")
+                print(_msg("explain_empty", lang), file=sys.stderr)
                 return 2
             hint = hint_for_text(
                 text,
@@ -331,7 +350,7 @@ def main(argv: list[str] | None = None) -> int:
                 language=lang,
             )
             if hint is None:
-                print("没有匹配到内置建议；可先用 `pytexlogs <log>` 查看条目上下文。")
+                print(_msg("explain_none", lang), file=sys.stderr)
                 return 1
             print(hint.text)
             for cmd in hint.commands:
@@ -346,16 +365,25 @@ def main(argv: list[str] | None = None) -> int:
 
         baseline = getattr(args, "baseline", None)
         if baseline:
+            if not Path(baseline).exists():
+                # 早退而不是让 FileNotFoundError 冒到顶层：后者会打出“CLI 异常”
+                # 与堆栈，用户看不到真正的原因（路径写错还是没导出过）。
+                print(_msg("baseline_missing", lang, path=str(baseline)), file=sys.stderr)
+                return 2
             results = _filter_against_baseline(results, Path(baseline))
 
         def _has_errors() -> bool:
-            return any(r.stats.stats.get("error", 0) > 0 for r in results)
+            return any(r.errors for r in results)
 
         def _has_warnings() -> bool:
-            return any(r.stats.stats.get("warning", 0) > 0 for r in results)
+            return any(r.warnings for r in results)
 
         entries_info, _min_lvl = _flatten_entries(results, severity)
-        filtered_for_output = filter_by_level(results, min_level)
+        # 被 --severity / --baseline 过滤到空的解析结果不再占一行统计：
+        # 否则摘要会打印 "By category: compile=1" 却一条条目都没有，看着像解析成功。
+        filtered_for_output = [
+            r for r in filter_by_level(results, min_level) if r.entries
+        ]
 
         output_text = ""
         if fmt == "json":
@@ -374,18 +402,7 @@ def main(argv: list[str] | None = None) -> int:
                     lines.append("By category: " + ", ".join(f"{k}={v}" for k, v in stats_c.items()))
                 if stats_p:
                     lines.append("By parser:   " + ", ".join(f"{k}={v}" for k, v in stats_p.items()))
-                parsed_logs_list = [
-                    ParsedLog(
-                        entries=list(tr.entries),
-                        raw_text="",
-                        source_path=tr.source_path,
-                        tool_name=tr.tool_name,
-                        category=tr.category,
-                        importance=tr.importance,
-                        stats=tr.stats.stats,
-                    )
-                    for tr in filtered_for_output
-                ]
+                parsed_logs_list = _as_parsed_logs(filtered_for_output)
                 with _w.catch_warnings():
                     _w.simplefilter("ignore", DeprecationWarning)
                     # stream=StringIO：禁止 print_summary 直接写 stdout，否则它自己
@@ -401,7 +418,7 @@ def main(argv: list[str] | None = None) -> int:
                     )
                 lines.append(summary_str.rstrip())
             else:
-                lines.append("（无解析结果。请传入 .log / .blg 或 aux 目录）")
+                lines.append(_msg("no_new_entries" if results else "no_results", lang))
             output_text = "\n".join(lines)
 
         if getattr(args, "output", None) is not None:
@@ -423,8 +440,12 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     except KeyboardInterrupt:
         return 130
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 — CLI 顶层兜底：必须给用户可见诊断
         logger.exception("CLI 异常")
+        print(
+            _msg("cli_error", lang, type=type(exc).__name__, msg=str(exc)),
+            file=sys.stderr,
+        )
         return 2
 
 

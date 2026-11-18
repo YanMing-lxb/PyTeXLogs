@@ -84,18 +84,7 @@ dev = [
 
 [tool.coverage.run]
 source = ["src/pytexlogs"]
-omit = [
-    "src/pytexlogs/parsers/biber.py",
-    "src/pytexlogs/parsers/bibtex.py",
-    "src/pytexlogs/parsers/glossaries.py",
-    "src/pytexlogs/parsers/makeindex.py",
-    "src/pytexlogs/parsers/xindy.py",
-    "src/pytexlogs/parsers/nomencl.py",
-    "src/pytexlogs/core/reftracker.py",
-    "src/pytexlogs/display/formatter.py",
-    "src/pytexlogs/parsers/latex.py",
-    "src/pytexlogs/core/report.py",
-    "src/pytexlogs/core/engine.py",
-    "src/pytexlogs/core/manager.py",
-]
+# 0.6.1 起不再 omit 任何业务模块：0.5 把 12 个核心模块（engine/report/manager/
+# reftracker/6 个 parser）整段排除在覆盖率之外，等于"只统计容易覆盖的部分"。
+# 覆盖率低就要补测试，而不是把被测对象藏起来。
 

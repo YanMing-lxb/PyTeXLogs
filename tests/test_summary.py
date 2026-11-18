@@ -206,6 +206,25 @@ def test_return_string():
     print("返回字符串验证通过 ✓")
 
 
+def test_typesetting_entries_are_grouped():
+    """0.5 的 _group_by 只认 error/warning/info，Overfull 这类"提示"被整组丢弃。"""
+    logs = [
+        ParsedLog(
+            category="compile",
+            tool_name="pdflatex",
+            importance="high",
+            entries=[
+                LogEntry(level=LogLevel.TYPESET, file="main.tex", line=12,
+                         text="Overfull \\hbox (12.0pt too wide)"),
+            ],
+        )
+    ]
+    with redirect_stdout(StringIO()):
+        result = print_summary(logs, use_logger=False, show_info=True)
+    assert "Overfull" in result
+    assert "排版提示汇总" in result
+
+
 if __name__ == "__main__":
     test_constants()
     test_summary_full_output()

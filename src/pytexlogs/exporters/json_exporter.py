@@ -12,8 +12,57 @@ from ..core.models import (
     ParsedPipelineReport,
     ReportEntry,
     ToolResult,
+    ToolResultReport,
+    level_from_value,
 )
 from ..version import __version__
+
+
+def _report_entry_to_log_entry(entry: ReportEntry) -> LogEntry:
+    """报告条目（level 为字符串）→ 运行时条目（level 为枚举）。
+
+    报告模型为了 JSON 兼容把等级存成字符串，导出 CSV/SARIF 与展示层需要枚举
+    才能比较严重度；转换只在这里做一次，避免每个导出器各写一张映射表。
+    """
+    return LogEntry(
+        level=level_from_value(entry.level),
+        file=entry.file or "",
+        line=entry.line or 0,
+        text=entry.text or "",
+        error_pos_text=entry.error_pos_text or "",
+    )
+
+
+def _result_to_dict(tr: ToolResultReport) -> dict[str, Any]:
+    """``ToolResultReport`` → 与 ``ToolResult`` 一致的导出形状。
+
+    刻意与 :func:`dataclasses.asdict` 对齐（``tool_name/category/importance/
+    source_path/entries/stats``），这样 CLI 从 ToolResult 切到报告模型后，
+    ``--format json`` 的消费方拿到的字段名不变。``ReportEntry.source`` 不外泄，
+    ``stats`` 统一成 ``{entries_count, error, warning}``。
+    """
+    return {
+        "tool_name": tr.tool_name,
+        "category": tr.category,
+        "importance": tr.importance,
+        "source_path": tr.source_path or "",
+        "entries": [
+            {
+                "level": str(e.level),
+                "file": e.file or "",
+                "line": e.line or 0,
+                "text": e.text or "",
+                "error_pos_text": e.error_pos_text or "",
+            }
+            for e in tr.entries
+        ],
+        "stats": {
+            "entries_count": tr.stats.get("entries_count", len(tr.entries)),
+            "stats": {
+                key: value for key, value in tr.stats.items() if key != "entries_count"
+            },
+        },
+    }
 
 
 def _entry_rank(entry: Any) -> int:
@@ -71,10 +120,15 @@ def filter_by_level(obj: Any, min_level: LogLevel | None) -> Any:
         report.severity_counts = severity_counts
         return report
 
+    if isinstance(obj, ToolResultReport):
+        return _filter_report_result(obj, min_level)
+
     if isinstance(obj, list):
         filtered: list[Any] = []
         for item in obj:
-            if isinstance(item, ToolResult):
+            if isinstance(item, ToolResultReport):
+                filtered.append(_filter_report_result(item, min_level))
+            elif isinstance(item, ToolResult):
                 kept = [e for e in item.entries if _entry_rank(e) <= int(min_level.severity)]
                 clone = dataclasses.replace(item, entries=kept)
                 clone.stats = dataclasses.replace(
@@ -94,6 +148,16 @@ def filter_by_level(obj: Any, min_level: LogLevel | None) -> Any:
     return obj
 
 
+def _filter_report_result(tr: ToolResultReport, min_level: LogLevel) -> ToolResultReport:
+    """按严重度过滤单个报告结果，并重算 ``entries_count``/等级计数。"""
+    kept = [e for e in tr.entries if _entry_rank(e) <= int(min_level.severity)]
+    stats = dict(tr.stats)
+    stats["entries_count"] = len(kept)
+    stats["error"] = sum(1 for e in kept if e.level == LogLevel.ERROR.value)
+    stats["warning"] = sum(1 for e in kept if e.level == LogLevel.WARNING.value)
+    return dataclasses.replace(tr, entries=kept, stats=stats)
+
+
 def _flatten_to_entries(
     obj: Any,
 ) -> list[tuple[LogEntry, str, str, str]]:
@@ -101,6 +165,7 @@ def _flatten_to_entries(
 
     支持的输入类型：
     - ParsedPipelineReport: 从 tool_results 提取
+    - list[ToolResultReport]: CLI 的规范输入（报告模型）
     - list[ToolResult]: 从每个 ToolResult 提取
     - list[LogEntry]: 直接使用条目
     - ParsedLog: 从单个解析结果提取
@@ -110,24 +175,13 @@ def _flatten_to_entries(
         for tr in obj.tool_results:
             for e in tr.entries:
                 if isinstance(e, ReportEntry):
-                    lvl_map = {
-                        "error": LogLevel.ERROR,
-                        "warning": LogLevel.WARNING,
-                        "typesetting": LogLevel.TYPESET,
-                        "info": LogLevel.INFO,
-                        "font": LogLevel.FONT,
-                        "graphic": LogLevel.GRAPHIC,
-                        "page": LogLevel.PAGE,
-                    }
-                    log_entry = LogEntry(
-                        level=lvl_map.get(e.level, LogLevel.INFO),
-                        file=e.file or "",
-                        line=e.line or 0,
-                        text=e.text or "",
-                        error_pos_text=e.error_pos_text or "",
-                    )
                     result.append(
-                        (log_entry, tr.category or "", tr.tool_name or "", tr.source_path or "")
+                        (
+                            _report_entry_to_log_entry(e),
+                            tr.category or "",
+                            tr.tool_name or "",
+                            tr.source_path or "",
+                        )
                     )
     elif isinstance(obj, ParsedLog):
         for e in obj.entries:
@@ -138,7 +192,18 @@ def _flatten_to_entries(
         if not obj:
             return result
         first = obj[0]
-        if isinstance(first, ToolResult):
+        if isinstance(first, ToolResultReport):
+            for tr in obj:
+                for e in tr.entries:
+                    result.append(
+                        (
+                            _report_entry_to_log_entry(e),
+                            tr.category or "",
+                            tr.tool_name or "",
+                            tr.source_path or "",
+                        )
+                    )
+        elif isinstance(first, ToolResult):
             for tr in obj:
                 for e in tr.entries:
                     result.append(
@@ -203,7 +268,13 @@ def to_json(
             data = {"results": [], "__format__": "pytexlogs-json-v1", "pytexlogs_version": __version__}
         else:
             first = obj[0]
-            if isinstance(first, ToolResult):
+            if isinstance(first, ToolResultReport):
+                data = {
+                    "results": [_result_to_dict(tr) for tr in obj],
+                    "__format__": "pytexlogs-json-v1",
+                    "pytexlogs_version": __version__,
+                }
+            elif isinstance(first, ToolResult):
                 data = {
                     "results": [dataclasses.asdict(tr) for tr in obj],
                     "__format__": "pytexlogs-json-v1",

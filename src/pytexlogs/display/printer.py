@@ -39,15 +39,9 @@ _LEVEL_LOGGER = {
     "error": logger.error,
     "warning": logger.warning,
     "info": logger.info,
+    # 排版提示属"提示"级：走 info 通道，避免日志里被当成警告
+    "typesetting": logger.info,
 }
-
-_LEVEL_ANSI = {
-    "error": "\033[1;31m",
-    "warning": "\033[1;33m",
-    "info": "\033[1;34m",
-}
-
-_ANSI_RESET = "\033[0m"
 
 _RICH_CONSOLE: Any = None
 if _RICH_AVAILABLE:
@@ -76,13 +70,6 @@ def _print_to_stream(stream: IO[str], markup: str, plain: str) -> None:
     stream.write(stripped)
     if not stripped.endswith("\n"):
         stream.write("\n")
-
-
-def _format_separator_old(title: str, ansi_color: str) -> str:
-    """旧版分隔符，仅用于 use_logger 分支。"""
-    sep_len = max(40, len(title) + 8)
-    line = "=" * sep_len
-    return f"{line}\n{ansi_color}{title}{_ANSI_RESET}\n{line}"
 
 
 def log_editor_jumps(entries: list[LogEntry], logger: logging.Logger | None = None, level: int = logging.INFO) -> None:
@@ -136,11 +123,27 @@ def print_summary(
         grouped = _group_by(parsed_logs)
         output_lines: list[str] = []
 
+        def emit(markup: str, plain: str, log_fn: Callable[[str], None] | None = None) -> None:
+            """三路输出的唯一入口：logger / stream / rich console，同时记进返回值。
+
+            0.5 把这套 if/elif/else 逐条复制了 12 处，任何一处忘改就会让终端与
+            日志里的同一段内容不一致；收敛到这里后只有这一份分派逻辑。
+            """
+            output_lines.append(plain)
+            if use_logger:
+                (log_fn or logger.info)(plain)
+            elif stream is not None:
+                _out(markup, plain)
+            else:
+                _RICH_CONSOLE.print(markup)
+
         levels_to_show: list[str] = []
         if non_quiet:
             levels_to_show = ["error", "warning"]
             if show_info:
-                levels_to_show.append("info")
+                # typesetting 是"提示"级：与 info 一起在 --show-info 下展开，
+                # 否则 Overfull/Underfull 会被整组丢弃、用户完全看不到。
+                levels_to_show.extend(["info", "typesetting"])
         else:
             levels_to_show = ["error"]
 
@@ -153,14 +156,9 @@ def print_summary(
             level_title = _t(_LEVEL_TITLE[level])
             sep_markup = _format_separator(level_title, _LEVEL_SEP_STYLE[level], text_len_fn)
             sep_plain = _strip_rich_markup(sep_markup)
-            output_lines.append(sep_plain)
-            if use_logger:
-                sep_line_old = _format_separator_old(level_title, _LEVEL_ANSI[level])
-                _LEVEL_LOGGER[level](sep_line_old)
-            elif stream is not None:
-                _out(sep_markup, sep_plain)
-            else:
-                _RICH_CONSOLE.print(sep_markup)
+            # 日志分支直接用同一份纯文本分隔符（不再另拼一套 ANSI 字符串，
+            # 否则同一段标题在终端与日志里长度、颜色都不一致）
+            emit(sep_markup, sep_plain, _LEVEL_LOGGER[level])
 
             for cat in CATEGORY_ORDER:
                 entries = categories_data[cat]
@@ -177,26 +175,14 @@ def print_summary(
                 dashes = "-" * dashes_count
                 cat_markup = f"{prefix}{label}{suffix_part}{dashes}[/]"
                 cat_plain = f"{plain_prefix_text}{dashes}"
-                output_lines.append(cat_plain)
-                if use_logger:
-                    _LEVEL_LOGGER[level](cat_plain)
-                elif stream is not None:
-                    _out(cat_markup, cat_plain)
-                else:
-                    _RICH_CONSOLE.print(cat_markup)
+                emit(cat_markup, cat_plain, _LEVEL_LOGGER[level])
 
                 shown = 0
                 for entry in entries:
                     if max_entries is not None and shown >= max_entries:
                         hidden = len(entries) - shown
                         more_plain = f"  … 还有 {hidden} 条（用 --format json 导出查看全部）"
-                        output_lines.append(more_plain)
-                        if use_logger:
-                            _LEVEL_LOGGER[level](more_plain)
-                        elif stream is not None:
-                            _out(f"[dim]{more_plain}[/]", more_plain)
-                        else:
-                            _RICH_CONSOLE.print(f"[dim]{more_plain}[/]")
+                        emit(f"[dim]{more_plain}[/]", more_plain, _LEVEL_LOGGER[level])
                         break
                     shown += 1
                     formatted_plain = _format_entry(entry)
@@ -208,13 +194,7 @@ def print_summary(
                             f"{symbol_markup} {file_line} [bold cyan]-->[/] {text_part}"
                         )
                     entry_plain_for_logger = f"  {formatted_plain}"
-                    output_lines.append(entry_plain_for_logger)
-                    if use_logger:
-                        _LEVEL_LOGGER[level](entry_plain_for_logger)
-                    elif stream is not None:
-                        _out(entry_markup, entry_plain_for_logger)
-                    else:
-                        _RICH_CONSOLE.print(entry_markup)
+                    emit(entry_markup, entry_plain_for_logger, _LEVEL_LOGGER[level])
 
                     if show_hints and level in ("error", "warning"):
                         from ..hints import hint_for_entry
@@ -222,43 +202,17 @@ def print_summary(
                         hint = hint_for_entry(entry, language=_formatter._LANG)
                         if hint is not None:
                             hint_plain = f"      ↳ {hint.text}"
-                            output_lines.append(hint_plain)
-                            hint_markup = f"[dim]      ↳ {hint.text}[/]"
-                            if use_logger:
-                                logger.info(hint_plain)
-                            elif stream is not None:
-                                _out(hint_markup, hint_plain)
-                            else:
-                                _RICH_CONSOLE.print(hint_markup)
+                            emit(f"[dim]{hint_plain}[/]", hint_plain)
                             if hint.commands:
                                 cmd_plain = "       " + " | ".join(hint.commands)
-                                output_lines.append(cmd_plain)
-                                cmd_markup = f"[dim cyan]{cmd_plain}[/]"
-                                if use_logger:
-                                    logger.info(cmd_plain)
-                                elif stream is not None:
-                                    _out(cmd_markup, cmd_plain)
-                                else:
-                                    _RICH_CONSOLE.print(cmd_markup)
+                                emit(f"[dim cyan]{cmd_plain}[/]", cmd_plain)
 
                 cat_bottom_sep_markup = f"[dim]{'-' * SUMMARY_TOTAL_LEN}[/]"
                 cat_bottom_sep_plain = "-" * SUMMARY_TOTAL_LEN
-                output_lines.append(cat_bottom_sep_plain)
-                if use_logger:
-                    _LEVEL_LOGGER[level](cat_bottom_sep_plain)
-                elif stream is not None:
-                    _out(cat_bottom_sep_markup, cat_bottom_sep_plain)
-                else:
-                    _RICH_CONSOLE.print(cat_bottom_sep_markup)
+                emit(cat_bottom_sep_markup, cat_bottom_sep_plain, _LEVEL_LOGGER[level])
 
         if ref_change_report:
-            output_lines.append(ref_change_report)
-            if use_logger:
-                logger.info(ref_change_report)
-            elif stream is not None:
-                _out(ref_change_report, ref_change_report)
-            else:
-                _RICH_CONSOLE.print(ref_change_report)
+            emit(ref_change_report, ref_change_report)
 
         if ref_added_keys:
             ref_label = _t("参考文献")
@@ -278,13 +232,7 @@ def print_summary(
                 indent="  ",
             )
             for i, line in enumerate(added_block_markup):
-                if use_logger:
-                    logger.info(added_block_plain[i])
-                elif stream is not None:
-                    _out(line, added_block_plain[i])
-                else:
-                    _RICH_CONSOLE.print(line)
-            output_lines.extend(added_block_plain)
+                emit(line, added_block_plain[i])
 
         if ref_removed_keys:
             ref_label = _t("参考文献")
@@ -304,13 +252,7 @@ def print_summary(
                 indent="  ",
             )
             for i, line in enumerate(removed_block_markup):
-                if use_logger:
-                    logger.info(removed_block_plain[i])
-                elif stream is not None:
-                    _out(line, removed_block_plain[i])
-                else:
-                    _RICH_CONSOLE.print(line)
-            output_lines.extend(removed_block_plain)
+                emit(line, removed_block_plain[i])
 
         if ref_total and ref_total > 0:
             ref_label = _t("参考文献")
@@ -327,25 +269,12 @@ def print_summary(
                 f"[bold]  [{ref_label}] [/]{total_t} {ref_total} {pian_t}{pian_space}"
                 f"{comma}{unchanged_t} {ref_unchanged or 0} {pian_t}"
             )
-            output_lines.append(total_plain)
-            if use_logger:
-                logger.info(total_plain)
-            elif stream is not None:
-                _out(total_markup, total_plain)
-            else:
-                _RICH_CONSOLE.print(total_markup)
+            emit(total_markup, total_plain)
 
         if ref_key_counts and len(ref_key_counts) > 0:
             top_block_markup = _format_top_cited(ref_key_counts, top_n=5)
             for line in top_block_markup:
-                plain = _strip_rich_markup(line)
-                output_lines.append(plain)
-                if use_logger:
-                    logger.info(plain)
-                elif stream is not None:
-                    _out(line, plain)
-                else:
-                    _RICH_CONSOLE.print(line)
+                emit(line, _strip_rich_markup(line))
 
         return "\n".join(output_lines)
     finally:

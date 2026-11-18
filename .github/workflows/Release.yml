@@ -87,7 +87,7 @@ jobs:
           version_header="## $tag_name"
           echo "$changelog" | awk -v h="$version_header" '
             BEGIN{p=0}
-            $0 == h {p=1; next}
+            index($0, h) == 1 {p=1; next}
             p && /^## / {p=0}
             p {print}
           ' > CHANGELOG.txt
