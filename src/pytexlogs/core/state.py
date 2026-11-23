@@ -21,7 +21,7 @@ import os
 import tempfile
 import time
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -52,6 +52,11 @@ def _empty_state() -> dict[str, Any]:
     return {"schema_version": SCHEMA_VERSION}
 
 
+def _is_legacy_version(version: Any) -> bool:
+    """是否为可安全升级的旧 schema 版本（小于当前版本的正整数）。"""
+    return isinstance(version, int) and not isinstance(version, bool) and version < SCHEMA_VERSION
+
+
 class ProjectStateStore:
     """项目状态文件的读写门面：命名空间隔离 + 原子写 + 可选文件锁。
 
@@ -79,6 +84,12 @@ class ProjectStateStore:
         self.path = self.auxdir / filename
         self.lock_path = self.auxdir / f"{filename}{_LOCK_SUFFIX}"
         self.lock_timeout = lock_timeout
+        #: 最近一次 ``load()`` 是否因 schema 版本不兼容而丢弃了文件内容。
+        #: ``_mutate`` 据此拒绝写盘：未来版本/其他工具的数据不能被空骨架覆盖。
+        #: 旧版扁平格式（v2 及更早）不适用——它没有任何工具的命名空间，
+        #: 丢弃后升级为当前 schema 是安全的。文件缺失或损坏（坏 JSON/顶层
+        #: 非 dict）也不算版本不兼容，仍允许降级覆盖。
+        self._version_incompatible = False
 
     # ---------------------------------------------------------------- 读取
 
@@ -88,6 +99,7 @@ class ProjectStateStore:
         严格 v3：遇到 ``schema_version`` 不为 3 的文件直接丢弃内容（仅记日志），
         这样无需维护旧格式迁移分支。
         """
+        self._version_incompatible = False
         if not self.path.exists():
             return _empty_state()
         try:
@@ -100,6 +112,10 @@ class ProjectStateStore:
             return _empty_state()
         version = raw.get("schema_version")
         if version != SCHEMA_VERSION:
+            # v2 及更早是已废弃的扁平格式，内容里没有其他工具的命名空间，
+            # 下次写入时安全升级；只有未来版本（或无法识别的版本值）才可能
+            # 带着本库不认识的数据，必须拒绝写盘。
+            self._version_incompatible = not _is_legacy_version(version)
             logger.warning(
                 "状态文件 schema 版本不受支持（%s，需要 %s），已忽略其内容: %s",
                 version,
@@ -164,27 +180,15 @@ class ProjectStateStore:
 
         0.6.1 起不再整份 ``unlink``：直接删文件会连带抹掉 ``pytexlogs.refs``
         等别人的命名空间，与"多工具共享一个文件、各自只删自己命名空间"的规则冲突。
+        删除空文件与删命名空间放在同一把锁内完成，避免锁外读-判-删期间别人写入
+        的新命名空间被连带删除。
         """
-        removed = self.remove_namespace("pytexmk")
-        if not removed:
-            return False
-        self._prune_if_empty()
-        return True
+        return self._mutate(lambda state: state.pop("pytexmk", None), prune=True)
 
     # ------------------------------------------------------------ 内部实现
 
     #: 不属于任何工具的元数据键；仅剩这些键时说明状态文件已无业务数据
     _META_KEYS = frozenset({"schema_version", "timestamp", "jobs"})
-
-    def _prune_if_empty(self) -> None:
-        """状态文件仅剩元数据时删除文件（避免残留空壳反复被读取）。"""
-        state = self.load()
-        if set(state) - self._META_KEYS:
-            return
-        try:
-            self.path.unlink(missing_ok=True)
-        except OSError as exc:
-            logger.debug("删除空状态文件失败: %s (%s)", self.path, exc)
 
     def _update_section(self, namespace: str, section: str, updates: dict[str, Any]) -> bool:
         """更新 ``<namespace>.<section>`` 下的键；整段读-改-写都在锁内完成。
@@ -221,8 +225,12 @@ class ProjectStateStore:
         """整体设置 state[name]。"""
         state[name] = value
 
-    def _mutate(self, mutator) -> bool:
-        """在锁内读-改-写，原子落盘；任何异常都不外抛。"""
+    def _mutate(self, mutator, *, prune: bool = False) -> bool:
+        """在锁内读-改-写，原子落盘；任何异常都不外抛。
+
+        ``prune=True`` 时，若 mutator 执行后只剩元数据键，直接在锁内删除文件，
+        不再写入一个空壳。
+        """
         try:
             self.auxdir.mkdir(parents=True, exist_ok=True)
             with self._locked() as acquired:
@@ -231,7 +239,19 @@ class ProjectStateStore:
                     # 别人刚写好的键（0.4.x 里是“未获锁仍照常写”，锁形同虚设）。
                     return False
                 state = self.load()
+                if self._version_incompatible:
+                    # 版本不符时 load() 返回空骨架；若照常写入，会把未来版本或
+                    # 其他工具写在同一文件里的命名空间整份覆盖（实测 v4 文件丢
+                    # pytexmk.build）。这里直接放弃本次写入，文件原样保留。
+                    logger.warning("状态文件 schema 版本不兼容，放弃写入以免覆盖: %s", self.path)
+                    return False
                 mutator(state)
+                if prune and not (set(state) - self._META_KEYS):
+                    try:
+                        self.path.unlink(missing_ok=True)
+                    except OSError as exc:
+                        logger.debug("删除空状态文件失败: %s (%s)", self.path, exc)
+                    return True
                 state["schema_version"] = SCHEMA_VERSION
                 if self.jobname:
                     state.setdefault("jobs", {})
@@ -241,27 +261,23 @@ class ProjectStateStore:
                 state["timestamp"] = _now_iso()
                 self._atomic_write(state)
             return True
-        except OSError as exc:
+        except Exception as exc:
             logger.debug("写入状态文件失败（不影响主流程）: %s (%s)", self.path, exc)
             return False
 
     def _atomic_write(self, state: dict[str, Any]) -> None:
-        """写同目录临时文件后 os.replace，保证读者永远看到完整文件。"""
+        """写同目录临时文件后 Path.replace，保证读者永远看到完整文件。"""
         payload = json.dumps(state, ensure_ascii=False, indent=2, sort_keys=False)
-        fd, tmp_name = tempfile.mkstemp(
-            dir=str(self.auxdir), prefix=f".{self.path.name}.", suffix=".tmp"
-        )
+        fd, tmp_name = tempfile.mkstemp(dir=str(self.auxdir), prefix=f".{self.path.name}.", suffix=".tmp")
         try:
             with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
                 handle.write(payload)
                 handle.flush()
                 os.fsync(handle.fileno())
-            os.replace(tmp_name, self.path)
+            Path(tmp_name).replace(self.path)
         except BaseException:
-            try:
-                os.unlink(tmp_name)
-            except OSError:
-                pass
+            with suppress(OSError):
+                Path(tmp_name).unlink(missing_ok=True)
             raise
 
     @contextmanager
@@ -279,10 +295,8 @@ class ProjectStateStore:
             yield acquired
         finally:
             if acquired:
-                try:
+                with suppress(OSError):
                     self.lock_path.unlink(missing_ok=True)
-                except OSError:
-                    pass
 
     def _try_acquire(self) -> bool:
         """尝试创建锁文件；超时返回 False。"""
@@ -308,10 +322,8 @@ class ProjectStateStore:
         except OSError:
             return
         if time.time() - mtime > 30.0:
-            try:
+            with suppress(OSError):
                 self.lock_path.unlink(missing_ok=True)
-            except OSError:
-                pass
 
 
 def _now_iso() -> str:

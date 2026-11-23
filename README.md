@@ -1,11 +1,15 @@
 # PyTeXLogs
 
-PyTeXLogs v0.5.0 是 LaTeX/BibTeX/Biber/Minted/Asymptote/Makeindex 日志解析库。可嵌入任意 Python 工具链。
+PyTeXLogs v0.6.2 是 LaTeX/BibTeX/Biber/Minted/Asymptote/Makeindex 日志解析库。可嵌入任意 Python 工具链。
 
-> v0.5.0 新增：可执行建议（`hint_for_text` / `hint_for_entry`，缺宏包直接给
+> v0.5.0 起新增：可执行建议（`hint_for_text` / `hint_for_entry`，缺宏包直接给
 > `tlmgr install` / `miktex packages install` 命令）、日志类型嗅探
 > （`sniff_bib_tool` / `sniff_index_tool` / `sniff_tex_engine` / `plan_default_steps`）、
 > `pytexlogs explain` 子命令、SARIF 规则与指纹、`--baseline/--severity/--jobname`。
+>
+> 每条建议带稳定 `rule_id`（JSON `hints[].hint.rule_id`、SARIF
+> `properties["pytexlogs/hint"].rule_id`）；41 条规则的触发条件、工具作用域与误报边界见
+> [`docs/hints-reference.md`](docs/hints-reference.md)。
 
 ## 安装
 
@@ -20,7 +24,7 @@ pip install pytexlogs
 uv add pytexlogs[rich]
 
 # 仅 CLI：作为全局工具安装
-uv tool install --python 3.10 pytexlogs
+uv tool install --python 3.15 pytexlogs
 ```
 
 ## 应用价值 · 6 大场景
@@ -49,12 +53,13 @@ print_summary([parsed], use_logger=False, non_quiet=True)
 输出：
 
 ```
-错误 1 条，警告 1 条
-┌─────────────┬───────┬─────────┬──────────┐
-│ 类别         │ ERROR │ WARNING │ 合计     │
-├─────────────┼───────┼─────────┼──────────┤
-│ compile     │ 1     │ 1       │ 2        │
-└─────────────┴───────┴─────────┴──────────┘
+错误 3 条，警告 0 条
+================================== 错误汇总 ==================================
++-- [一般编译] ---------------------------------------------------------------
+  [E] article.cls:5 --> Undefined control sequence.
+  [E] article.cls:5 --> Emergency stop.
+  [E] article.cls:1 --> ==> Fatal error occurred, no output PDF file produced!
+--------------------------------------------------------------------------
 ```
 
 ### 3.2 CLI 一行使用
@@ -113,16 +118,16 @@ print(f"自定义 parser 产出 {len(results[0].warnings)} 条 lint 警告")
 
 | 符号 | 用途 |
 |---|---|
-| `parse_log_file(path)` | 一行解析单个 .log / .blg / .ilg 等文件（按后缀自动猜 parser） |
+| `parse_log_file(path)` | 一行解析单个 .log / .blg / .ilg / .xlg 等文件（按后缀自动猜 parser）；`.bcf` 显式传入时由 Biber 提取 citekey 统计，不产生日志条目 |
 | `parse_log_text(text, engine="pdflatex")` | 一行解析字符串（captured_outputs / subprocess.stdout 场景） |
-| `parse_auxdir(jobname, auxdir, steps, captured_outputs)` | 一行扫描整个 LaTeX 辅助目录 |
+| `parse_auxdir(jobname, auxdir, steps, captured_outputs)` | 一行扫描整个 LaTeX 辅助目录；`steps=None` 时自动并入 `captured_outputs` 的 key |
 | `plan_default_steps(jobname, auxdir)` | 按实际产物规划解析步骤，并从 `.log` 头部识别 pdflatex/xelatex/lualatex |
 | `sniff_tex_engine(log_path)` | 单独判断引擎类型，认不出返回 `None` |
 | `filter_severity(entries, min_level=WARNING)` | 按严重度裁剪日志条目 |
-| `aggregate_stats(obj, group_by="category\|level\|parser")` | 聚合统计 → 直方图/报表数据源 |
-| `run_pipeline(...)` | 完整 pipeline：发现→解析→汇总→摘要→报告一体化（推荐） |
-| `print_summary(results, ...)` | 终端友好的摘要打印（含错误/警告汇总、HINT 字典） |
-| `show_log_entries(entries, ...)` | 逐条日志条目可视化展示 |
+| `aggregate_stats(obj, group_by="category\|level\|parser")` | 聚合统计 → 直方图/报表数据源；未知 `group_by` 抛 `ValueError` |
+| `run_pipeline(...)` | 完整 pipeline：发现→解析→汇总→摘要→报告一体化（推荐）；未给 `jobname` 时从 `auxdir` 推断 |
+| `print_summary(results, ...)` | 终端友好的摘要打印；`show_info=True` 时含信息/排版/字体/图形/页面提示，`show_hints=True` 时含错误/警告汇总与可执行建议 |
+| `show_log_entries(entries, ...)` | 逐条日志条目可视化展示，支持 `ParsedLog` / `ToolResultReport` / `ReportEntry` |
 | `format_editor_jumps(entries)` | 生成 `file:line: message` 的编辑器跳转列表 |
 | `log_editor_jumps(entries)` | 通过 logging 输出编辑器跳转列表 |
 | `set_summary_language(lang, translate_fn=None)` | 全局设置摘要语言（zh/en）或自定义翻译函数 |
@@ -132,7 +137,7 @@ print(f"自定义 parser 产出 {len(results[0].warnings)} 条 lint 警告")
 | 符号 | 用途 |
 |---|---|
 | `LogParserManager` | 按 step/suffix 调度多个解析器的管理器 |
-| `LogParserRegistry` | 解析器注册表：默认 11 项 + Entry Point 自动加载 |
+| `LogParserRegistry` | 解析器注册表：默认 10 个解析器规格 + Entry Point 自动加载 |
 | `LogParserSpec` | 单条解析器规格结构 |
 | `load_entry_points()` | 手动触发 `pytexlogs.parsers` Entry Point 加载 |
 
@@ -152,16 +157,16 @@ print(f"自定义 parser 产出 {len(results[0].warnings)} 条 lint 警告")
 | `RefChangeTracker` | 参考文献引用变更跟踪器 |
 | `load_report(path)` | 从 JSON 恢复 `ParsedPipelineReport` |
 | `write_report(report, path)` | 把 `ParsedPipelineReport` 写入 JSON |
-| `to_json(obj)` | 结构化导出：JSON 字符串 |
-| `to_csv(obj)` | 结构化导出：CSV 字符串（表头 `file,line,level,category,tool,text,hint,source_path`） |
-| `to_sarif(obj)` | 结构化导出：SARIF v2.1.0 最小子集 dict（CI / GitHub Code Scanning） |
+| `to_json(obj, include_hints=True, language=None)` | 结构化导出：JSON 字符串；顶层 `hints` 提供 file/line/tool/kind/text/text_en/commands/rule_id，`include_hints=False` 回到旧载荷。可选 `language`：默认中文；`language="en"` 时 hint 的 `text` 用英文（英文缺失回退中文），`text`/`text_en` 双字段仍保留 |
+| `to_csv(obj, language=None, include_hints=True)` | 结构化导出：CSV 字符串（表头 `file,line,level,category,tool,text,hint,source_path`）。可选 `language`：默认中文；`language="en"` 时 `hint` 列用英文，表头不变；`include_hints=False` 可跳过逐行 hint 计算；以 `= + - @` 等开头的单元格会加 `'` 前缀防公式注入 |
+| `to_sarif(obj, include_hints=True, language=None)` | 结构化导出：SARIF v2.1.0 最小子集 dict；`result.properties["pytexlogs/hint"]` 携带 hints。可选 `language`：默认中文；`language="en"` 时 hint 的 `text` 用英文，`text_en` 仍保留 |
 
 ### 4. 常量 / Hint 字典（面向人类）
 
 | 符号 | 用途 |
 |---|---|
-| `CATEGORY_LABEL` | 6 大类别 → 中文标签 |
-| `CATEGORY_ORDER` | 6 大类排序顺序 |
+| `CATEGORY_LABEL` | 8 大类别 → 中文标签 |
+| `CATEGORY_ORDER` | 8 大类排序顺序 |
 | `IMPORTANCE_LABEL` | importance high/medium/low → 中文 |
 | `LATEX_LOG_HINTS` | pdflatex 常见错误 → 修复建议 |
 | `BIBTEX_ERROR_HINTS` | bibtex 常见错误 → 修复建议 |
@@ -216,7 +221,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.15"
-      - run: pip install uv && uv tool install --python 3.10 pytexlogs
+      - run: pip install uv && uv tool install --python 3.15 pytexlogs
       - name: 编译论文
         run: latexmk -pdf -outdir=build main.tex || true
       - name: 导出 SARIF
@@ -230,5 +235,6 @@ jobs:
 ## 链接
 
 - [CHANGELOG.md](./CHANGELOG.md) · 版本变更记录
+- [代码修改手册](./docs/code-modification-playbook.md) · 公共 API、parser、状态存储与回归约定
 - 许可证：**GPL-3.0-or-later**（与 [LICENSE](./LICENSE) 文件一致）
 - PyPI：<https://pypi.org/project/pytexlogs/>

@@ -46,7 +46,7 @@ from .display import (
     show_log_entries,
 )
 from .easy import (
-    aggregate_stats,  # noqa: F401
+    aggregate_stats,
     filter_severity,
     parse_auxdir,
     parse_log_file,
@@ -102,6 +102,7 @@ __all__ = [
     "ToolResultReport",
     "ToolResultStats",
     "XindyParser",
+    "aggregate_stats",
     "detect_missing_package",
     "filter_by_level",
     "filter_severity",

@@ -1,4 +1,4 @@
-"""编码辅助函数与路径解析工具。"""
+"""日志文本编码辅助：多编码尝试与乱码留痕。"""
 
 import logging
 from pathlib import Path
@@ -8,8 +8,8 @@ logger = logging.getLogger(__name__)
 #: 日志解码候选编码（按"误判概率从低到高"排序）。
 #:
 #: 说明：
-#: - ``utf-8-sig`` 只在有 BOM 时才会与 ``utf-8`` 产生差异，因此放在最前面，
-#:   避免带 BOM 的 UTF-8 日志被解成 ``\ufeff`` 开头的脏字符；
+#: - ``utf-8-sig`` 只在有 BOM 时才会与 ``utf-8`` 产生差异；它同样能解码所有
+#:   合法 UTF-8 字节，因此不再单列 ``utf-8``，避免一次无意义的重复尝试；
 #: - 不再保留 ``gbk``：``gb18030`` 是 GBK 的超集，任何合法 GBK 字节都能被
 #:   ``gb18030`` 解出，单列 ``gbk`` 只会增加一次无意义的解码尝试；
 #: - 不再保留 ``latin-1``：它对任意字节都能"成功"解码，会把 GBK/Shift-JIS
@@ -17,7 +17,6 @@ logger = logging.getLogger(__name__)
 #:   下面的 ``errors="replace"`` 兜底并打印警告。
 FALLBACK_ENCODINGS: tuple[str, ...] = (
     "utf-8-sig",
-    "utf-8",
     "gb18030",
 )
 
@@ -43,19 +42,3 @@ def read_log_text(log_path: str | Path) -> str:
         "/".join(FALLBACK_ENCODINGS),
     )
     return data.decode("utf-8", errors="replace")
-
-
-def resolve_path(file_path: str, root_file: str | None = None) -> str:
-    """解析文件路径，将相对路径转换为绝对路径。"""
-    if not file_path:
-        return ""
-    path = Path(file_path)
-    if path.is_absolute():
-        return str(path)
-    if root_file:
-        root_dir = Path(root_file).parent
-        try:
-            return str((root_dir / file_path).resolve())
-        except Exception:
-            return file_path
-    return file_path

@@ -4,6 +4,8 @@ import dataclasses
 import json
 import logging
 import os
+import tempfile
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -57,10 +59,7 @@ def _from_dict_simple(cls: type[Any], d: dict[str, Any]) -> Any:
             continue
         item_cls = _LIST_FIELDS.get(fname)
         if item_cls is not None and isinstance(value, list):
-            known[fname] = [
-                _from_dict_simple(item_cls, item) if isinstance(item, dict) else item
-                for item in value
-            ]
+            known[fname] = [_from_dict_simple(item_cls, item) if isinstance(item, dict) else item for item in value]
 
     if cls is ReportEntry:
         level = known.get("level")
@@ -77,19 +76,25 @@ def _from_dict_simple(cls: type[Any], d: dict[str, Any]) -> Any:
 
 def dict_to_report(d: dict[str, Any]) -> ParsedPipelineReport:
     """从 dict 递归构造 ParsedPipelineReport。"""
+    if not isinstance(d, dict):
+        raise TypeError(f"报告顶层必须是 JSON object，实际是 {type(d).__name__}")
     result: Any = _from_dict_simple(ParsedPipelineReport, d)
     return result
 
 
-def write_report(report: ParsedPipelineReport, path: str | Path) -> Path | None:
-    """原子式写入 JSON 报告到 path，失败返回 None（不留下临时文件）。"""
+def _write_report_impl(report: ParsedPipelineReport, path: str | Path) -> tuple[Path | None, str | None]:
+    """写报告并同时返回失败原因；公开的 ``write_report`` 只暴露路径。"""
     from ..exporters.json_exporter import report_to_dict
 
     path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp: Path | None = None
+    fd: int | None = None
     try:
-        with open(tmp, "w", encoding="utf-8", newline="\n") as f:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp_name = tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp")
+        tmp = Path(tmp_name)
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
+            fd = None
             json.dump(
                 report_to_dict(report),
                 f,
@@ -100,22 +105,29 @@ def write_report(report: ParsedPipelineReport, path: str | Path) -> Path | None:
             )
             f.flush()
             os.fsync(f.fileno())
-        os.replace(tmp, path)
-    except Exception:
+        tmp.replace(path)
+    except Exception as e:
         # 任何失败都要清掉半截临时文件；报告本身是可选产物，不能污染项目目录
         logger.warning("报告写入失败: %s", path, exc_info=True)
-        try:
-            tmp.unlink(missing_ok=True)
-        except OSError:
-            pass
-        return None
-    return path
+        if fd is not None:
+            with suppress(OSError):
+                os.close(fd)
+        if tmp is not None:
+            with suppress(OSError):
+                tmp.unlink(missing_ok=True)
+        return None, f"{type(e).__name__}: {e}"
+    return path, None
+
+
+def write_report(report: ParsedPipelineReport, path: str | Path) -> Path | None:
+    """原子式写入 JSON 报告到 path，失败返回 None（不留下临时文件）。"""
+    return _write_report_impl(report, path)[0]
 
 
 def load_report(path: str | Path) -> ParsedPipelineReport:
     """从 JSON 文件加载 ParsedPipelineReport，高 schema_version 警告。"""
     try:
-        with open(path, encoding="utf-8") as f:
+        with Path(path).open(encoding="utf-8") as f:
             d: dict[str, Any] = json.load(f)
     except FileNotFoundError:
         logger.error("报告文件不存在: %s", path)
@@ -126,10 +138,14 @@ def load_report(path: str | Path) -> ParsedPipelineReport:
     except Exception as e:
         logger.error("加载报告文件失败: %s - %s", path, e)
         raise
+    if not isinstance(d, dict):
+        logger.error("报告顶层不是 JSON object: %s（实际 %s）", path, type(d).__name__)
+        raise TypeError(f"报告顶层必须是 JSON object，实际是 {type(d).__name__}")
     sv = d.get("schema_version", REPORT_SCHEMA_VERSION)
     if isinstance(sv, int) and sv > REPORT_SCHEMA_VERSION:
         logger.warning(
             "schema_version %d 高于当前 %d，部分字段可能被忽略",
-            sv, REPORT_SCHEMA_VERSION,
+            sv,
+            REPORT_SCHEMA_VERSION,
         )
     return dict_to_report(d)

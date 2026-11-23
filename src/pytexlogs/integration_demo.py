@@ -58,24 +58,34 @@ Warning--I couldn't open database file references.bib
                 "bibtex": blg_content,
             },
             steps=["pdflatex", "bibtex"],
+            print_terminal=False,
         )
 
-        parsed_logs_list = []
-        tool_results = getattr(results, 'tool_results', [])
-        for r in tool_results:
-            from .core.models import ParsedLog
+        from .core.models import LogEntry, ParsedLog, level_from_value
+
+        parsed_logs_list: list[ParsedLog] = []
+        for r in results.tool_results:
             pl = ParsedLog(
-                entries=getattr(r, "entries", []),
-                raw_text=getattr(r, "raw_text", ""),
-                source_path=getattr(r, "source_path", ""),
-                tool_name=getattr(r, "tool_name", ""),
-                category=getattr(r, "category", ""),
-                importance=getattr(r, "importance", "low"),
+                entries=[
+                    LogEntry(
+                        level=level_from_value(e.level),
+                        file=e.file or "",
+                        line=e.line or 0,
+                        text=e.text or "",
+                        error_pos_text=e.error_pos_text or "",
+                    )
+                    for e in r.entries
+                ],
+                raw_text="",
+                source_path=r.source_path or "",
+                tool_name=r.tool_name,
+                category=r.category,
+                importance=r.importance,
+                stats=dict(r.stats),
             )
             parsed_logs_list.append(pl)
 
-        summary = print_summary(parsed_logs_list, use_logger=False, non_quiet=True)
-        print(summary)
+        print_summary(parsed_logs_list, use_logger=False, non_quiet=True)
 
     print("=" * 60)
     print("Demo completed.")

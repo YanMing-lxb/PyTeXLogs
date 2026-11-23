@@ -72,7 +72,13 @@ def test_from_parsed_log_is_single_conversion_point() -> None:
     report = ToolResultReport.from_parsed_log(parsed)
     assert [e.level for e in report.entries] == ["error", "warning"]
     assert report.importance == "high"  # 有 error 就必须是 high
-    assert report.stats == {"entries_count": 2, "error": 1, "warning": 1}
+    # stats 现在由 recompute_stats 统一补齐（等级键 + *_count），这里只锁定
+    # 与条目集合直接相关的关键字段，不锁定完整键集合。
+    assert report.stats["entries_count"] == 2
+    assert report.stats["error"] == 1
+    assert report.stats["errors_count"] == 1
+    assert report.stats["warning"] == 1
+    assert report.stats["warnings_count"] == 1
 
 
 def test_cli_json_shape_is_stable(project: Path) -> None:
@@ -125,7 +131,5 @@ def test_cli_baseline_filters_everything(project: Path) -> None:
     # 过滤到空之后不能再打印“By category: compile=1”这种会误导人的统计
     assert "By category" not in proc.stdout
 
-    proc = _run_cli(
-        "export", "main.log", "--baseline", "baseline.json", "--format", "json", cwd=project
-    )
+    proc = _run_cli("export", "main.log", "--baseline", "baseline.json", "--format", "json", cwd=project)
     assert json.loads(proc.stdout)["results"] == []

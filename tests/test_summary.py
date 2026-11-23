@@ -95,6 +95,8 @@ def test_constants():
         "glossary",
         "code",
         "graphics",
+        "external",
+        "custom",
         "compile",
     ]
     assert CATEGORY_LABEL["bibliography"] == "参考文献"
@@ -102,6 +104,8 @@ def test_constants():
     assert CATEGORY_LABEL["glossary"] == "术语/词汇表"
     assert CATEGORY_LABEL["code"] == "代码执行"
     assert CATEGORY_LABEL["graphics"] == "图形/绘图"
+    assert CATEGORY_LABEL["external"] == "外部工具"
+    assert CATEGORY_LABEL["custom"] == "自定义解析"
     assert CATEGORY_LABEL["compile"] == "一般编译"
     assert IMPORTANCE_LABEL == {"high": "高", "medium": "中", "low": "低"}
     print("常量定义验证通过 ✓")
@@ -214,8 +218,7 @@ def test_typesetting_entries_are_grouped():
             tool_name="pdflatex",
             importance="high",
             entries=[
-                LogEntry(level=LogLevel.TYPESET, file="main.tex", line=12,
-                         text="Overfull \\hbox (12.0pt too wide)"),
+                LogEntry(level=LogLevel.TYPESET, file="main.tex", line=12, text="Overfull \\hbox (12.0pt too wide)"),
             ],
         )
     ]
@@ -223,6 +226,34 @@ def test_typesetting_entries_are_grouped():
         result = print_summary(logs, use_logger=False, show_info=True)
     assert "Overfull" in result
     assert "排版提示汇总" in result
+
+
+def test_typeset_font_graphic_page_entries_are_grouped():
+    """FONT/GRAPHIC/PAGE 也是提示级，show_info=True 时必须有各自的摘要组。"""
+    logs = [
+        ParsedLog(
+            category="compile",
+            tool_name="pdflatex",
+            importance="high",
+            entries=[
+                LogEntry(level=LogLevel.FONT, file="main.tex", line=3, text="Font shape `OT1/cmr/m/n' undefined"),
+                LogEntry(level=LogLevel.GRAPHIC, file="main.tex", line=4, text="File `fig.png' not found"),
+                LogEntry(level=LogLevel.PAGE, file="main.tex", line=5, text="Underfull \\vbox (badness 10000)"),
+            ],
+        )
+    ]
+    result = print_summary(logs, use_logger=False, show_info=True)
+    assert "字体提示汇总" in result
+    assert "图形提示汇总" in result
+    assert "页面提示汇总" in result
+    assert "Font shape" in result
+    assert "fig.png" in result
+    assert "Underfull" in result
+
+    hidden = print_summary(logs, use_logger=False, show_info=False)
+    assert "字体提示汇总" not in hidden
+    assert "图形提示汇总" not in hidden
+    assert "页面提示汇总" not in hidden
 
 
 if __name__ == "__main__":

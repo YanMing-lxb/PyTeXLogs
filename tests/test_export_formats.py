@@ -1,4 +1,5 @@
 """Task 5 三种结构化导出（JSON/CSV/SARIF）测试（TR-5.1/5.2/5.3 + Check-5.5）。"""
+
 import json
 
 from pytexlogs import (
@@ -20,6 +21,11 @@ Output written on sample.pdf (1 page, 1000 bytes).
 Transcript written on sample.log.
 """
 
+_CITATION_LOG_TEXT = """This is pdfTeX, Version 3.14159265-2.6-1.40.25
+LaTeX Warning: Citation `Smith2020' undefined on input line 3.
+Transcript written on main.log.
+"""
+
 
 def test_to_json_has_keys():
     """TR-5.1：to_json 结果解析成功，含 __format__ / pytexlogs_version / meta / tool_results。"""
@@ -34,6 +40,40 @@ def test_to_json_has_keys():
     assert data.get("report_schema") == 1
     assert "meta" in data
     assert "tool_results" in data
+
+
+def test_to_json_includes_structured_hints():
+    """JSON 顶层 hints 必须能拿到工具作用域与项目 jobname。"""
+    report = run_pipeline(
+        jobname="main",
+        captured_outputs={"pdflatex": _CITATION_LOG_TEXT},
+    )
+    data = json.loads(to_json(report))
+    assert data["hints"], "JSON 没有导出任何 hint"
+    hint = data["hints"][0]
+    assert hint["hint"]["kind"] == "undefined_citation"
+    assert hint["hint"]["commands"] == ["biber main", "bibtex main"]
+    assert hint["tool"] == "pdflatex"
+
+    no_hints = json.loads(to_json(report, include_hints=False))
+    assert "hints" not in no_hints
+
+
+def test_to_sarif_includes_structured_hints():
+    """SARIF 的 hint 放在 result.properties，且不改变既有必填字段。"""
+    report = run_pipeline(
+        jobname="main",
+        captured_outputs={"pdflatex": _CITATION_LOG_TEXT},
+    )
+    sarif = to_sarif(report)
+    result = next(r for r in sarif["runs"][0]["results"] if "properties" in r)
+    hint = result["properties"]["pytexlogs/hint"]
+    assert hint["kind"] == "undefined_citation"
+    assert hint["commands"] == ["biber main", "bibtex main"]
+    assert {"ruleId", "level", "message", "locations", "partialFingerprints"} <= set(result)
+
+    no_hints = to_sarif(report, include_hints=False)
+    assert all("properties" not in r for r in no_hints["runs"][0]["results"])
 
 
 def test_to_csv_header():
@@ -76,14 +116,11 @@ def test_to_sarif_schema():
     sarif = to_sarif(report)
 
     assert sarif["$schema"] == (
-        "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/"
-        "Schemata/sarif-schema-2.1.0.json"
+        "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json"
     )
     assert sarif["version"] == "2.1.0"
     assert sarif["runs"][0]["tool"]["driver"]["name"] == "pytexlogs"
-    assert sarif["runs"][0]["results"][0]["locations"][0]["physicalLocation"][
-        "region"
-    ]["startLine"] >= 1
+    assert sarif["runs"][0]["results"][0]["locations"][0]["physicalLocation"]["region"]["startLine"] >= 1
 
 
 def test_empty_no_crash():

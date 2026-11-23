@@ -7,8 +7,6 @@
 - ``--fail-on`` 让 CI 能在出现 warning 时也失败。
 """
 
-from __future__ import annotations
-
 import dataclasses
 import io
 import json as _json
@@ -30,6 +28,7 @@ from ..core.models import (
     ToolResultReport,
     level_from_value,
 )
+from ..core.stats import recompute_stats
 from ..display import print_summary, set_summary_language
 from ..exporters.csv_exporter import to_csv
 from ..exporters.json_exporter import filter_by_level, to_json
@@ -39,6 +38,7 @@ from .args import (
     _apply_editor_template,
     _detect_editor,
     _flatten_entries,
+    _normalize_argv,
     build_parser,
 )
 
@@ -53,6 +53,9 @@ _MSG: dict[str, dict[str, str]] = {
         "explain_none": "没有匹配到内置建议；可先用 `pytexlogs <log>` 查看条目上下文。",
         "no_results": "（无解析结果。请传入 .log / .blg 或 aux 目录）",
         "no_new_entries": "（没有新增条目：--baseline/--severity 过滤后为空）",
+        "parse_failures_header": "=== 解析失败 ===",
+        "parse_failures_only": "存在解析失败，见上方解析失败列表",
+        "parse_failure_warning": "warning: {tool} 解析失败: {type}: {msg}",
         "baseline_missing": "基线报告不存在：{path}（先用 --output 导出一次 JSON 报告）",
         "cli_error": "pytexlogs 执行失败：{type}: {msg}（设置 PYTEXLOGS_DEBUG=1 可查看堆栈）",
     },
@@ -61,6 +64,9 @@ _MSG: dict[str, dict[str, str]] = {
         "explain_none": "No built-in hint matched; run `pytexlogs <log>` to inspect entry context first.",
         "no_results": "(no parse result: pass a .log / .blg file or an aux directory)",
         "no_new_entries": "(no new entries: everything was filtered out by --baseline/--severity)",
+        "parse_failures_header": "=== Parse Failures ===",
+        "parse_failures_only": "Parse failures occurred; see the parse failures list above",
+        "parse_failure_warning": "warning: failed to parse {tool}: {type}: {msg}",
         "baseline_missing": "Baseline report not found: {path} (export a JSON report with --output first)",
         "cli_error": "pytexlogs failed: {type}: {msg} (set PYTEXLOGS_DEBUG=1 for a traceback)",
     },
@@ -73,19 +79,38 @@ def _msg(key: str, lang: str | None = None, **fields: str) -> str:
     return table[key].format(**fields)
 
 
+def _warn_parse_failures(failures: Sequence[tuple[str, dict[str, str]]], lang: str) -> None:
+    """CSV/SARIF 没有条目行可承载失败信息，改写 stderr，保证 stdout 载荷干净。"""
+    for tool, exc in failures:
+        print(
+            _msg(
+                "parse_failure_warning",
+                lang,
+                tool=tool,
+                type=exc.get("type") or "Error",
+                msg=exc.get("message") or "",
+            ),
+            file=sys.stderr,
+        )
+
+
 def _configure_logging() -> None:
     """CLI 入口配置一次 stderr 日志，保证异常至少有可见输出。
 
-    0.5 的问题：``except Exception`` 里只调 ``logger.exception``，但全库从未
-    配置 logging，导致用户只看到一个退出码 2、没有任何诊断信息。
+    handler 必须挂在 ``pytexlogs`` 根 logger 上：引擎/解析器用
+    ``pytexlogs.core.*`` / ``pytexlogs.parsers.*``，挂在 ``pytexlogs.cli`` 上再
+    ``propagate=False`` 会让它们的 debug/info 永远继承到 root 的 WARNING。
     """
-    if logging.getLogger("pytexlogs").handlers:
+    root = logging.getLogger("pytexlogs")
+    level = logging.DEBUG if os.environ.get("PYTEXLOGS_DEBUG") else logging.WARNING
+    if root.handlers:
+        root.setLevel(level)
         return
     handler = logging.StreamHandler(sys.stderr)
     handler.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
-    logger.addHandler(handler)
-    logger.propagate = False
-    logger.setLevel(logging.DEBUG if os.environ.get("PYTEXLOGS_DEBUG") else logging.WARNING)
+    root.addHandler(handler)
+    root.setLevel(level)
+    root.propagate = False
 
 
 def _as_parsed_logs(results: list[ToolResultReport]) -> list[ParsedLog]:
@@ -118,15 +143,17 @@ def _as_parsed_logs(results: list[ToolResultReport]) -> list[ParsedLog]:
 
 
 def _iter_project_dirs(root: Path) -> list[Path]:
-    """递归找出真正含日志/源码的目录，避免对空目录也跑一遍 pipeline。"""
-    candidates = [root] + sorted(
-        p for p in root.rglob("*")
-        if p.is_dir() and not any(part.startswith(".") for part in p.relative_to(root).parts)
-    )
-    return [
-        d for d in candidates
-        if any(d.glob("*.log")) or any(d.glob("*.tex"))
-    ]
+    """递归找出真正含日志/源码的目录，避免对空目录也跑一遍 pipeline。
+
+    3.15 的 ``Path.walk`` 允许在遍历时裁剪 hidden 子目录，比先 ``rglob`` 出
+    全部节点再过滤更直接；排序保持确定，避免不同文件系统返回顺序影响批量输出。
+    """
+    candidates: list[Path] = []
+    for directory, dirnames, _files in root.walk():
+        dirnames[:] = [name for name in dirnames if not name.startswith(".")]
+        if any(directory.glob("*.log")) or any(directory.glob("*.tex")):
+            candidates.append(directory)
+    return sorted(candidates, key=lambda p: (p != root, p.as_posix()))
 
 
 def _collect_from_paths(paths: Sequence[str], args: Any) -> list[ToolResultReport]:
@@ -190,7 +217,14 @@ def _find_jobname_from_logs(d: Path) -> str | None:
     logs = [p for p in d.glob("*.log") if p.is_file()]
     if not logs:
         return None
-    return max(logs, key=lambda p: p.stat().st_size).stem
+
+    def _size(path: Path) -> int:
+        try:
+            return path.stat().st_size
+        except OSError:
+            return -1
+
+    return max(logs, key=_size).stem
 
 
 def _open_entries(entries_info: Sequence[Any], args: Any) -> None:
@@ -228,23 +262,15 @@ def _open_entries(entries_info: Sequence[Any], args: Any) -> None:
 
 
 def _aggregate_stats(results: list[ToolResultReport], group_by: str) -> dict[str, int]:
-    """聚合报告结果的统计信息（按 category / parser / level 计数）。"""
-    stats: dict[str, int] = {}
-    for r in results:
-        if group_by == "level":
-            for name in ("error", "warning", "typesetting", "info"):
-                stats[name] = stats.get(name, 0) + sum(
-                    1 for e in r.entries if e.level == name
-                )
-            continue
-        if group_by == "category":
-            key = r.category or "unknown"
-        elif group_by == "parser":
-            key = r.tool_name or "unknown"
-        else:
-            key = "unknown"
-        stats[key] = stats.get(key, 0) + 1
-    return stats
+    """聚合报告结果的统计信息（按 category / parser / level 计数）。
+
+    口径与 :func:`pytexlogs.aggregate_stats` 完全一致：category/parser 按条目数
+    聚合（不是工具结果 +1），level 动态覆盖全部等级（含 font/graphic/page）。
+    这里直接委托 easy 层，避免 CLI 与便捷 API 各维护一张计数表再次漂移。
+    """
+    from ..easy import aggregate_stats
+
+    return aggregate_stats(results, group_by=group_by)  # type: ignore[arg-type]
 
 
 def _entry_key(level: str, file: str | None, line: int | None, text: str) -> str:
@@ -258,9 +284,7 @@ def _entry_key(level: str, file: str | None, line: int | None, text: str) -> str
     return f"{level}|{file or ''}|{normalized}"
 
 
-def _filter_against_baseline(
-    results: list[ToolResultReport], baseline_path: Path
-) -> list[ToolResultReport]:
+def _filter_against_baseline(results: list[ToolResultReport], baseline_path: Path) -> list[ToolResultReport]:
     """只保留「上次报告里没有」的条目（新增或文本变化的回归）。"""
     from ..core.report import load_report
 
@@ -272,14 +296,9 @@ def _filter_against_baseline(
 
     filtered: list[ToolResultReport] = []
     for tr in results:
-        kept = [
-            e for e in tr.entries
-            if _entry_key(str(e.level), e.file, e.line, e.text) not in seen
-        ]
+        kept = [e for e in tr.entries if _entry_key(str(e.level), e.file, e.line, e.text) not in seen]
         stats = dict(tr.stats)
-        stats["entries_count"] = len(kept)
-        stats["error"] = sum(1 for e in kept if e.level == LogLevel.ERROR.value)
-        stats["warning"] = sum(1 for e in kept if e.level == LogLevel.WARNING.value)
+        recompute_stats(kept, stats)
         filtered.append(dataclasses.replace(tr, entries=kept, stats=stats))
     return filtered
 
@@ -300,8 +319,11 @@ def main(argv: list[str] | None = None) -> int:
     """CLI 主函数：解析参数、执行子命令、返回退出码。"""
     _configure_logging()
     parser = build_parser()
+    raw_argv = list(sys.argv[1:] if argv is None else argv)
     try:
-        args = parser.parse_args(argv)
+        # 裸路径（``pytexlogs main.log``）在解析前补成 ``check main.log``：
+        # 顶层 parser 没有 paths 位置参数，否则会以 invalid choice 退出。
+        args = parser.parse_args(_normalize_argv(raw_argv))
     except SystemExit as e:
         return int(e.code) if e.code is not None else 2
 
@@ -322,13 +344,14 @@ def main(argv: list[str] | None = None) -> int:
         max_entries = 10
     show_hints = not getattr(args, "no_hints", False)
     min_level = _SEVERITY_LEVEL.get(severity, LogLevel.WARNING)
+    # --severity info/all 已经让过滤层保留提示级；展示层必须同步打开，
+    # 否则用户看到“按 info 过滤”却只有 error/warning 两组。
+    show_info = min_level.severity >= LogLevel.INFO.severity
 
     try:
         if args.subcmd is None:
-            if not getattr(args, "paths", None):
-                parser.print_help()
-                return 0
-            args.subcmd = "check"
+            parser.print_help()
+            return 0
 
         if args.subcmd == "demo":
             from ..integration_demo import run_demo
@@ -348,6 +371,7 @@ def main(argv: list[str] | None = None) -> int:
                 jobname=getattr(args, "jobname", None),
                 root_file=str(args.root_file) if getattr(args, "root_file", None) else None,
                 language=lang,
+                tool_name=getattr(args, "tool", None),
             )
             if hint is None:
                 print(_msg("explain_none", lang), file=sys.stderr)
@@ -381,28 +405,50 @@ def main(argv: list[str] | None = None) -> int:
         entries_info, _min_lvl = _flatten_entries(results, severity)
         # 被 --severity / --baseline 过滤到空的解析结果不再占一行统计：
         # 否则摘要会打印 "By category: compile=1" 却一条条目都没有，看着像解析成功。
-        filtered_for_output = [
-            r for r in filter_by_level(results, min_level) if r.entries
-        ]
+        # 但解析失败（parse_exception 非空、entries 为空）必须保留：它是用户与 CI
+        # 唯一能看到解析器崩溃的信号，不能因为“没有条目”被静默丢弃。
+        filtered_for_output = [r for r in filter_by_level(results, min_level) if r.entries or r.parse_exception]
+        parse_failures: list[tuple[str, dict[str, str]]] = []
+        for _result in filtered_for_output:
+            if _result.parse_exception:
+                parse_failures.append((_result.tool_name or "unknown", _result.parse_exception))
+        has_displayable_entries = any(r.entries for r in filtered_for_output)
 
         output_text = ""
         if fmt == "json":
-            output_text = to_json(filtered_for_output)
+            output_text = to_json(filtered_for_output, language=lang, include_hints=show_hints)
         elif fmt == "csv":
-            output_text = to_csv(filtered_for_output)
+            output_text = to_csv(filtered_for_output, language=lang, include_hints=show_hints)
+            _warn_parse_failures(parse_failures, lang)
         elif fmt == "sarif":
-            output_text = _json.dumps(to_sarif(filtered_for_output), ensure_ascii=False, indent=2)
+            output_text = _json.dumps(
+                to_sarif(filtered_for_output, language=lang, include_hints=show_hints),
+                ensure_ascii=False,
+                indent=2,
+            )
+            _warn_parse_failures(parse_failures, lang)
         else:
             lines: list[str] = []
-            if filtered_for_output:
-                stats_c = _aggregate_stats(filtered_for_output, group_by="category")
-                stats_p = _aggregate_stats(filtered_for_output, group_by="parser")
+            if has_displayable_entries:
+                # 只统计真正有展示条目的结果；解析失败的 0 条目结果不应
+                # 冒出一行 "compile=0"。
+                stats_c = {k: v for k, v in _aggregate_stats(filtered_for_output, group_by="category").items() if v}
+                stats_p = {k: v for k, v in _aggregate_stats(filtered_for_output, group_by="parser").items() if v}
                 lines.append("=== PyTeXLogs Summary ===")
                 if stats_c:
                     lines.append("By category: " + ", ".join(f"{k}={v}" for k, v in stats_c.items()))
                 if stats_p:
                     lines.append("By parser:   " + ", ".join(f"{k}={v}" for k, v in stats_p.items()))
                 parsed_logs_list = _as_parsed_logs(filtered_for_output)
+                hint_jobname = getattr(args, "jobname", None)
+                if not hint_jobname:
+                    # 单文件/目录输入通常没有显式 --jobname；从 source_path 的
+                    # 文件名推断 main，避免 hint 使用子文件 intro.tex 当 jobname。
+                    for _result in filtered_for_output:
+                        if _result.source_path:
+                            hint_jobname = Path(_result.source_path).stem
+                            break
+                hint_root_file = str(args.root_file) if getattr(args, "root_file", None) else None
                 with _w.catch_warnings():
                     _w.simplefilter("ignore", DeprecationWarning)
                     # stream=StringIO：禁止 print_summary 直接写 stdout，否则它自己
@@ -411,13 +457,23 @@ def main(argv: list[str] | None = None) -> int:
                         parsed_logs_list,
                         use_logger=False,
                         non_quiet=min_level != LogLevel.ERROR,
+                        show_info=show_info,
                         max_entries=max_entries or None,
                         show_hints=show_hints,
                         language=lang,
+                        jobname=hint_jobname,
+                        root_file=hint_root_file,
                         stream=io.StringIO(),
                     )
                 lines.append(summary_str.rstrip())
-            else:
+            if parse_failures:
+                lines.append(_msg("parse_failures_header", lang))
+                lines.extend(
+                    f"{tool}: {exc.get('type') or 'Error'}: {exc.get('message') or ''}" for tool, exc in parse_failures
+                )
+                if not has_displayable_entries:
+                    lines.append(_msg("parse_failures_only", lang))
+            elif not filtered_for_output:
                 lines.append(_msg("no_new_entries" if results else "no_results", lang))
             output_text = "\n".join(lines)
 

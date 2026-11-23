@@ -64,3 +64,22 @@ def test_run_pipeline_is_not_wrapped():
     from pytexlogs.core.engine import run_pipeline as engine_run_pipeline
 
     assert pkg.run_pipeline is engine_run_pipeline
+
+
+def test_aggregate_stats_is_public():
+    """aggregate_stats 是公共 API：既在 __all__ 中，也可直接调用。"""
+    import pytexlogs
+
+    assert "aggregate_stats" in pytexlogs.__all__
+    assert callable(pytexlogs.aggregate_stats)
+
+
+def test_star_import_exposes_every_all_name():
+    """`from pytexlogs import *` 必须把 __all__ 里的每个名字都带出来。"""
+    import pytexlogs
+
+    ns: dict[str, object] = {}
+    exec("from pytexlogs import *", ns)
+    assert "aggregate_stats" in ns
+    for name in pytexlogs.__all__:
+        assert getattr(pytexlogs, name, None) is not None, f"__all__ 中的 {name} 无法访问"

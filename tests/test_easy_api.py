@@ -1,4 +1,5 @@
 """Task 4 便捷 API 与统计聚合测试（TR-4.1 ~ TR-4.4）。"""
+
 from pathlib import Path
 
 from pytexlogs import (

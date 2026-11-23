@@ -1,11 +1,12 @@
 """PyTeXLogs 核心数据模型：日志等级、条目、解析结果、报告结构与工具结果。"""
 
 from abc import ABC, abstractmethod
+from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Literal, override  # noqa: F401  # override 仅供注解使用
+from typing import Any, Literal
 
 from ..utils.encoding import read_log_text
 
@@ -130,31 +131,22 @@ class BaseLogParser(ABC):
         if not path.exists():
             return ParsedLog(source_path=str(path))
         text = self._read_log_text(path)
-        result = self.parse(text, root_file or self.root_file)
+        # 让解析器在 parse 期间能看到真实日志路径：Biber 用它找同目录 .bcf，
+        # Glossaries 用它区分 .glg/.ilg，其它 parser 用它推导 source_path。
+        self._source_path_hint = str(path)
+        try:
+            result = self.parse(text, root_file or self.root_file)
+        finally:
+            with suppress(AttributeError):
+                delattr(self, "_source_path_hint")
+        if result is None:
+            raise TypeError(f"{type(self).__name__}.parse() 返回 None；必须返回 ParsedLog")
         result.source_path = str(path)
         return result
 
     def _read_log_text(self, log_path: str | Path) -> str:
         """读取日志文本；编码候选与兜底策略统一由 :func:`utils.encoding.read_log_text` 维护。"""
         return read_log_text(log_path)
-
-    def _resolve_file_path(self, filename: str) -> str:
-        """将相对路径解析为绝对路径，带缓存。"""
-        if not filename:
-            return self.root_file or ""
-        if filename in self._resolved_paths:
-            return self._resolved_paths[filename]
-        path = Path(filename)
-        if path.is_absolute():
-            resolved = str(path)
-        else:
-            root_dir = Path(self.root_file).parent if self.root_file else Path.cwd()
-            try:
-                resolved = str((root_dir / filename).resolve())
-            except Exception:
-                resolved = filename
-        self._resolved_paths[filename] = resolved
-        return resolved
 
 
 # --- 报告数据模型 ---
@@ -196,7 +188,6 @@ class ReportEntry:
     line: int | None = None
     text: str = ""
     error_pos_text: str | None = None
-    source: str | None = None
 
 
 @dataclass(slots=True)
@@ -256,20 +247,22 @@ class ToolResultReport:
         ]
         error_count = sum(1 for e in entries if e.level == LogLevel.ERROR.value)
         warning_count = sum(1 for e in entries if e.level == LogLevel.WARNING.value)
-        importance: str = (
-            "high" if error_count else "medium" if warning_count else parsed.importance
-        )
+        importance: str = "high" if error_count else "medium" if warning_count else parsed.importance
+        # 保留 parser 产出的整日志统计（页数、未定义引用、盒子等），再按条目集合
+        # 重算可推导字段（等级键 / errors_count / warnings_count / entries_count）。
+        # 这样单文件入口与目录 pipeline 的 stats 键集合一致；局部 import 规避
+        # core.stats 已在模块级导入 core.models 造成的循环导入。
+        stats: dict[str, Any] = dict(parsed.stats)
+        from .stats import recompute_stats
+
+        recompute_stats(entries, stats)
         return cls(
             tool_name=parsed.tool_name,
             category=parsed.category,
             importance=importance,
             source_path=parsed.source_path or None,
             entries=entries,
-            stats={
-                "entries_count": len(entries),
-                "error": error_count,
-                "warning": warning_count,
-            },
+            stats=stats,
         )
 
 
@@ -291,8 +284,6 @@ class ReferencesReport:
     added: list[str] = field(default_factory=list)
     removed: list[str] = field(default_factory=list)
     unchanged: list[str] = field(default_factory=list)
-    previous_aux_hash: str | None = None
-    current_aux_hash: str | None = None
     key_counts: dict[str, int] = field(default_factory=dict)
     top_cited: list[dict[str, Any]] = field(default_factory=list)
 

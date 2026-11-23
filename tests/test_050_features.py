@@ -183,12 +183,16 @@ def test_baseline_ignores_line_shift(tmp_path: Path, capsys: pytest.CaptureFixtu
 
 def test_explain_uses_jobname_context(capsys: pytest.CaptureFixture[str]) -> None:
     """explain 应能用 --jobname/--root-file 给出真实可复制命令。"""
-    code = main([
-        "explain",
-        "LaTeX Warning: Citation `Smith2020' undefined on input line 7.",
-        "--jobname", "main",
-        "--root-file", "main.tex",
-    ])
+    code = main(
+        [
+            "explain",
+            "LaTeX Warning: Citation `Smith2020' undefined on input line 7.",
+            "--jobname",
+            "main",
+            "--root-file",
+            "main.tex",
+        ]
+    )
     assert code == 0
     out = capsys.readouterr().out
     assert "biber main" in out and "bibtex main" in out
@@ -196,11 +200,14 @@ def test_explain_uses_jobname_context(capsys: pytest.CaptureFixture[str]) -> Non
 
 def test_explain_supports_english(capsys: pytest.CaptureFixture[str]) -> None:
     """explain --lang en 的说明和命令都应可直接使用。"""
-    code = main([
-        "explain",
-        "! LaTeX Error: File `siunitx.sty' not found.",
-        "--lang", "en",
-    ])
+    code = main(
+        [
+            "explain",
+            "! LaTeX Error: File `siunitx.sty' not found.",
+            "--lang",
+            "en",
+        ]
+    )
     assert code == 0
     out = capsys.readouterr().out
     assert "Missing package/class" in out
@@ -232,8 +239,7 @@ def test_cli_global_option_before_subcommand(tmp_path: Path) -> None:
     log = tmp_path / "main.log"
     _write(
         log,
-        "! LaTeX Error: File `x.sty' not found.\n"
-        "LaTeX Warning: Reference `foo' on page 1 undefined on input line 2.\n"
+        "! LaTeX Error: File `x.sty' not found.\nLaTeX Warning: Reference `foo' on page 1 undefined on input line 2.\n",
     )
     assert main(["--severity", "error", "check", str(log)]) == 1
 
@@ -248,7 +254,7 @@ def test_cli_prints_each_entry_once(tmp_path: Path, capsys: pytest.CaptureFixtur
     )
     assert main(["summary", str(aux)]) == 0
     out = capsys.readouterr().out
-    assert out.count("找不到 reference") == 1
+    assert out.count("Undefined reference") == 1
 
 
 def test_state_lock_failure_skips_write(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

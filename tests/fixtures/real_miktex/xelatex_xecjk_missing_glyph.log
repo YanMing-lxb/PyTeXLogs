@@ -1,0 +1,306 @@
+This is XeTeX, Version 3.141592653-2.6-0.999998 (MiKTeX 26.5 Portable) (preloaded format=xelatex 2026.11.22)  22 NOV 2026 09:41
+entering extended mode
+ restricted \write18 enabled.
+ %&-line parsing enabled.
+**./main.tex
+(main.tex
+LaTeX2e <2026-11-01>
+L3 programming layer <2026-09-09>
+
+(C:\Applications\Scoop\apps\miktex\current\texmfs\install\tex/latex/base\articl
+e.cls
+Document Class: article 2026-06-04 v1.4n Standard LaTeX document class
+
+(C:\Applications\Scoop\apps\miktex\current\texmfs\install\tex/latex/base\size10
+.clo
+File: size10.clo 2026-06-04 v1.4n Standard LaTeX file (size option)
+)
+\c@part=\count273
+\c@section=\count274
+\c@subsection=\count275
+\c@subsubsection=\count276
+\c@paragraph=\count277
+\c@subparagraph=\count278
+\c@figure=\count279
+\c@table=\count280
+\abovecaptionskip=\skip49
+\belowcaptionskip=\skip50
+\bibindent=\dimen150
+)
+(C:\Applications\Scoop\apps\miktex\current\texmfs\install\tex/xelatex/xecjk\xeC
+JK.sty
+(C:\Applications\Scoop\apps\miktex\current\texmfs\install\tex/latex/l3kernel\ex
+pl3.sty
+Package: expl3 2026-09-09 L3 programming layer (loader) 
+
+(C:\Applications\Scoop\apps\miktex\current\texmfs\install\tex/latex/l3kernel\l3
+backend-xetex.def
+File: l3backend-xetex.def 2026-09-09 L3 backend support: XeTeX
+\g__graphics_track_int=\count281
+\g__pdfannot_backend_int=\count282
+\g__pdfannot_backend_link_int=\count283
+))
+Package: xeCJK 2026/08/21 v3.10.6 Typesetting CJK scripts with XeLaTeX
+
+(C:\Applications\Scoop\apps\miktex\current\texmfs\install\tex/latex/ctex\ctexho
+ok.sty
+Package: ctexhook 2026/08/11 v2.6.5 Document and package hooks (CTEX)
+)
+(C:\Applications\Scoop\apps\miktex\current\texmfs\install\tex/latex/ctex\ctexpa
+tch.sty
+Package: ctexpatch 2026/08/11 v2.6.5 Patching commands (CTEX)
+)
+(C:\Applications\Scoop\apps\miktex\current\texmfs\install\tex/latex/l3packages/
+xtemplate\xtemplate.sty
+Package: xtemplate 2025-10-09 L3 Experimental prototype document functions
+)
+\l__xeCJK_tmp_int=\count284
+\l__xeCJK_tmp_box=\box53
+\l__xeCJK_tmp_dim=\dimen151
+\l__xeCJK_tmp_skip=\skip51
+\g__xeCJK_space_factor_int=\count285
+\l__xeCJK_begin_int=\count286
+\l__xeCJK_end_int=\count287
+\c__xeCJK_CJK_class_int=\XeTeXcharclass1
+\c__xeCJK_FullLeft_class_int=\XeTeXcharclass2
+\c__xeCJK_FullRight_class_int=\XeTeXcharclass3
+\c__xeCJK_HalfLeft_class_int=\XeTeXcharclass4
+\c__xeCJK_HalfRight_class_int=\XeTeXcharclass5
+\c__xeCJK_NormalSpace_class_int=\XeTeXcharclass6
+\c__xeCJK_CM_class_int=\XeTeXcharclass7
+\c__xeCJK_HangulJamo_class_int=\XeTeXcharclass8
+\c__xeCJK_HangulJamoL_class_int=\XeTeXcharclass9
+\c__xeCJK_HangulJamoV_class_int=\XeTeXcharclass10
+\c__xeCJK_HangulJamoT_class_int=\XeTeXcharclass11
+\c__xeCJK_CJStarter_class_int=\XeTeXcharclass12
+\c__xeCJK_PoZheHao_class_int=\XeTeXcharclass13
+\l__xeCJK_interword_dim=\dimen152
+\l__xeCJK_last_skip=\skip52
+\c__xeCJK_none_node=\count288
+\g__xeCJK_node_int=\count289
+\c__xeCJK_CJK_node_dim=\dimen153
+\c__xeCJK_CJK-space_node_dim=\dimen154
+\c__xeCJK_default_node_dim=\dimen155
+\c__xeCJK_CJK-widow_node_dim=\dimen156
+\c__xeCJK_normalspace_node_dim=\dimen157
+\c__xeCJK_default-space_node_skip=\skip53
+\c__xeCJK_math_node_dim=\dimen158
+\c__xeCJK_math-space_node_dim=\dimen159
+\c__xeCJK_math-space-frozen_node_dim=\dimen160
+\g__xeCJK_boundary_capture_depth_int=\count290
+\g__xeCJK_boundary_suspend_depth_int=\count291
+\g__xeCJK_boundary_capture_1_box=\box54
+\g__xeCJK_boundary_capture_2_box=\box55
+\g__xeCJK_boundary_capture_3_box=\box56
+\l__xeCJK_boundary_post_box=\box57
+\l__xeCJK_boundary_math_skip=\skip54
+\l__xeCJK_boundary_math_actual_skip=\skip55
+\l__xeCJK_boundary_math_ecglue_skip=\skip56
+\l__xeCJK_boundary_math_delta_skip=\skip57
+\l__xeCJK_boundary_math_space_dim=\dimen161
+\l__xeCJK_boundary_math_ecglue_dim=\dimen162
+\l__xeCJK_boundary_math_stretch_dim=\dimen163
+\l__xeCJK_boundary_math_shrink_dim=\dimen164
+\g__xeCJK_boundary_probe_type_int=\count292
+\l__xeCJK_boundary_probe_box=\box58
+\l__xeCJK_ccglue_skip=\skip58
+\l__xeCJK_ecglue_skip=\skip59
+\g__xeCJK_par_guard_dim=\dimen165
+\l__xeCJK_punct_kern_skip=\skip60
+\l__xeCJK_indent_box=\box59
+\l__xeCJK_last_penalty_int=\count293
+\l__xeCJK_last_bound_dim=\dimen166
+\l__xeCJK_last_kern_dim=\dimen167
+\l__xeCJK_widow_penalty_int=\count294
+
+LaTeX template Info: Declaring template type 'xeCJK/punctuation' taking 0
+(template)           argument(s) on line 4902.
+
+\l__xeCJK_fixed_punct_width_dim=\dimen168
+\l__xeCJK_mixed_punct_width_dim=\dimen169
+\l__xeCJK_middle_punct_width_dim=\dimen170
+\l__xeCJK_fixed_margin_width_dim=\dimen171
+\l__xeCJK_mixed_margin_width_dim=\dimen172
+\l__xeCJK_middle_margin_width_dim=\dimen173
+\l__xeCJK_bound_punct_width_dim=\dimen174
+\l__xeCJK_bound_margin_width_dim=\dimen175
+\l__xeCJK_margin_minimum_dim=\dimen176
+\l__xeCJK_kerning_total_width_dim=\dimen177
+\l__xeCJK_same_align_margin_dim=\dimen178
+\l__xeCJK_different_align_margin_dim=\dimen179
+\l__xeCJK_kerning_margin_width_dim=\dimen180
+\l__xeCJK_kerning_margin_minimum_dim=\dimen181
+\l__xeCJK_bound_dim=\dimen182
+\l__xeCJK_reverse_bound_dim=\dimen183
+\l__xeCJK_margin_dim=\dimen184
+\l__xeCJK_minimum_bound_dim=\dimen185
+\l__xeCJK_kerning_margin_dim=\dimen186
+\g__xeCJK_family_int=\count295
+\l__xeCJK_fam_int=\count296
+\g__xeCJK_fam_allocation_int=\count297
+\l__xeCJK_verb_case_int=\count298
+\l__xeCJK_verb_exspace_skip=\skip61
+
+(C:\Applications\Scoop\apps\miktex\current\texmfs\install\tex/latex/fontspec\fo
+ntspec.sty
+Package: fontspec 2026/08/11 v2.9h Font selection for XeLaTeX and LuaLaTeX
+
+(C:\Applications\Scoop\apps\miktex\current\texmfs\install\tex/latex/fontspec\fo
+ntspec-xetex.sty
+Package: fontspec-xetex 2026/08/11 v2.9h Font selection for XeLaTeX and LuaLaTe
+X
+\l__fontspec_script_int=\count299
+\l__fontspec_language_int=\count300
+\l__fontspec_strnum_int=\count301
+\l__fontspec_tmp_int=\count302
+\l__fontspec_tmpa_int=\count303
+\l__fontspec_tmpb_int=\count304
+\l__fontspec_tmpc_int=\count305
+\l__fontspec_em_int=\count306
+\l__fontspec_emdef_int=\count307
+\l__fontspec_strong_int=\count308
+\l__fontspec_strongdef_int=\count309
+\l__fontspec_tmpa_dim=\dimen187
+\l__fontspec_tmpb_dim=\dimen188
+\l__fontspec_tmpc_dim=\dimen189
+
+(C:\Applications\Scoop\apps\miktex\current\texmfs\install\tex/latex/base\fonten
+c.sty
+Package: fontenc 2026-07-31 v2.2a Standard LaTeX package
+)
+(C:\Applications\Scoop\apps\miktex\current\texmfs\install\tex/latex/fontspec\fo
+ntspec.cfg)))
+\l__xeCJK_default_char_int=\count310
+
+(C:\Applications\Scoop\apps\miktex\current\texmfs\install\tex/xelatex/xecjk\xeC
+JK.cfg
+File: xeCJK.cfg 2026/08/21 v3.10.6 Configuration file for xeCJK package
+))
+
+Package fontspec Info: 
+(fontspec)             Script 'CJK' not explicitly supported within font
+(fontspec)             'Latin Modern Roman'. Check the typeset output, and if
+(fontspec)             it is okay then ignore this warning. Otherwise a
+(fontspec)             different font should be chosen.
+
+
+Package fontspec Info: 
+(fontspec)             Font family 'LatinModernRoman(0)' created for font
+(fontspec)             'Latin Modern Roman' with options [Script={CJK}].
+(fontspec)              
+(fontspec)              This font family consists of the following NFSS
+(fontspec)             series/shapes:
+(fontspec)              
+(fontspec)             - 'normal' (m/n) with NFSS spec.: <->"Latin Modern
+(fontspec)             Roman/OT:script=hani;language=dflt;"
+(fontspec)             - 'bold' (b/n) with NFSS spec.: <->"Latin Modern
+(fontspec)             Roman/B/OT:script=hani;language=dflt;"
+(fontspec)             - 'italic' (m/it) with NFSS spec.: <->"Latin Modern
+(fontspec)             Roman/I/OT:script=hani;language=dflt;"
+(fontspec)             - 'bold italic' (b/it) with NFSS spec.: <->"Latin
+(fontspec)             Modern Roman/BI/OT:script=hani;language=dflt;"
+
+
+No file main.aux.
+\openout1 = `main.aux'.
+
+LaTeX Font Info:    Checking defaults for OML/cmm/m/it on input line 4.
+LaTeX Font Info:    ... okay on input line 4.
+LaTeX Font Info:    Checking defaults for OMS/cmsy/m/n on input line 4.
+LaTeX Font Info:    ... okay on input line 4.
+LaTeX Font Info:    Checking defaults for OT1/cmr/m/n on input line 4.
+LaTeX Font Info:    ... okay on input line 4.
+LaTeX Font Info:    Checking defaults for T1/cmr/m/n on input line 4.
+LaTeX Font Info:    ... okay on input line 4.
+LaTeX Font Info:    Checking defaults for TS1/cmr/m/n on input line 4.
+LaTeX Font Info:    ... okay on input line 4.
+LaTeX Font Info:    Checking defaults for TU/lmr/m/n on input line 4.
+LaTeX Font Info:    ... okay on input line 4.
+LaTeX Font Info:    Checking defaults for OMX/cmex/m/n on input line 4.
+LaTeX Font Info:    ... okay on input line 4.
+LaTeX Font Info:    Checking defaults for U/cmr/m/n on input line 4.
+LaTeX Font Info:    ... okay on input line 4.
+
+Package fontspec Info: 
+(fontspec)             Adjusting the maths setup (use [no-math] to avoid
+(fontspec)             this).
+
+\symlegacymaths=\mathgroup4
+LaTeX Font Info:    Overwriting symbol font `legacymaths' in version `bold'
+(Font)                  OT1/cmr/m/n --> OT1/cmr/bx/n on input line 4.
+LaTeX Font Info:    Redeclaring math accent \acute on input line 4.
+LaTeX Font Info:    Redeclaring math accent \grave on input line 4.
+LaTeX Font Info:    Redeclaring math accent \ddot on input line 4.
+LaTeX Font Info:    Redeclaring math accent \tilde on input line 4.
+LaTeX Font Info:    Redeclaring math accent \bar on input line 4.
+LaTeX Font Info:    Redeclaring math accent \breve on input line 4.
+LaTeX Font Info:    Redeclaring math accent \check on input line 4.
+LaTeX Font Info:    Redeclaring math accent \hat on input line 4.
+LaTeX Font Info:    Redeclaring math accent \dot on input line 4.
+LaTeX Font Info:    Redeclaring math accent \mathring on input line 4.
+LaTeX Font Info:    Redeclaring math symbol \colon on input line 4.
+LaTeX Font Info:    Redeclaring math symbol \Gamma on input line 4.
+LaTeX Font Info:    Redeclaring math symbol \Delta on input line 4.
+LaTeX Font Info:    Redeclaring math symbol \Theta on input line 4.
+LaTeX Font Info:    Redeclaring math symbol \Lambda on input line 4.
+LaTeX Font Info:    Redeclaring math symbol \Xi on input line 4.
+LaTeX Font Info:    Redeclaring math symbol \Pi on input line 4.
+LaTeX Font Info:    Redeclaring math symbol \Sigma on input line 4.
+LaTeX Font Info:    Redeclaring math symbol \Upsilon on input line 4.
+LaTeX Font Info:    Redeclaring math symbol \Phi on input line 4.
+LaTeX Font Info:    Redeclaring math symbol \Psi on input line 4.
+LaTeX Font Info:    Redeclaring math symbol \Omega on input line 4.
+LaTeX Font Info:    Redeclaring math symbol \mathdollar on input line 4.
+LaTeX Font Info:    Redeclaring symbol font `operators' on input line 4.
+LaTeX Font Info:    Encoding `OT1' has changed to `TU' for symbol font
+(Font)              `operators' in the math version `normal' on input line 4.
+LaTeX Font Info:    Overwriting symbol font `operators' in version `normal'
+(Font)                  OT1/cmr/m/n --> TU/lmr/m/n on input line 4.
+LaTeX Font Info:    Encoding `OT1' has changed to `TU' for symbol font
+(Font)              `operators' in the math version `bold' on input line 4.
+LaTeX Font Info:    Overwriting symbol font `operators' in version `bold'
+(Font)                  OT1/cmr/bx/n --> TU/lmr/m/n on input line 4.
+LaTeX Font Info:    Overwriting symbol font `operators' in version `normal'
+(Font)                  TU/lmr/m/n --> TU/lmr/m/n on input line 4.
+LaTeX Font Info:    Overwriting math alphabet `\mathit' in version `normal'
+(Font)                  OT1/cmr/m/it --> TU/lmr/m/it on input line 4.
+LaTeX Font Info:    Overwriting math alphabet `\mathbf' in version `normal'
+(Font)                  OT1/cmr/bx/n --> TU/lmr/b/n on input line 4.
+LaTeX Font Info:    Overwriting math alphabet `\mathsf' in version `normal'
+(Font)                  OT1/cmss/m/n --> TU/lmss/m/n on input line 4.
+LaTeX Font Info:    Overwriting math alphabet `\mathtt' in version `normal'
+(Font)                  OT1/cmtt/m/n --> TU/lmtt/m/n on input line 4.
+LaTeX Font Info:    Overwriting symbol font `operators' in version `bold'
+(Font)                  TU/lmr/m/n --> TU/lmr/b/n on input line 4.
+LaTeX Font Info:    Overwriting math alphabet `\mathit' in version `bold'
+(Font)                  OT1/cmr/bx/it --> TU/lmr/b/it on input line 4.
+LaTeX Font Info:    Overwriting math alphabet `\mathsf' in version `bold'
+(Font)                  OT1/cmss/bx/n --> TU/lmss/b/n on input line 4.
+LaTeX Font Info:    Overwriting math alphabet `\mathtt' in version `bold'
+(Font)                  OT1/cmtt/m/n --> TU/lmtt/b/n on input line 4.
+Missing character: There is no 中 in font Latin Modern Roman 10 Regular/OT:scrip
+t=hani;language=dflt;!
+Missing character: There is no 文 in font Latin Modern Roman 10 Regular/OT:scrip
+t=hani;language=dflt;!
+Missing character: There is no 测 in font Latin Modern Roman 10 Regular/OT:scrip
+t=hani;language=dflt;!
+Missing character: There is no 试 in font Latin Modern Roman 10 Regular/OT:scrip
+t=hani;language=dflt;!
+[1
+
+] (main.aux)
+ ***********
+LaTeX2e <2026-11-01>
+L3 programming layer <2026/08/21>
+ ***********
+ ) 
+Here is how much of TeX's memory you used:
+ 4774 strings out of 402429
+ 152102 string characters out of 5430668
+ 602561 words of memory out of 5000000
+ 34064 multiletter control sequences out of 15000+600000
+ 629143 words of font info for 54 fonts, out of 8000000 for 9000
+ 1348 hyphenation exceptions out of 8191
+ 74i,5n,92p,383b,252s stack positions out of 10000i,1000n,20000p,200000b,200000s
+
+Output written on main.pdf (1 page).

@@ -1,33 +1,27 @@
 """Glossaries 术语表 .glg 日志解析器实现。"""
 
 import re
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
 from ..core.models import BaseLogParser, LogEntry, LogLevel, ParsedLog
-
-entries_re = re.compile(r"^##\s+(\d+)\s+entries accepted,\s*(\d+)\s+rejected")
-warnings_issued_re = re.compile(r"^##\s+(\d+)\s+warnings issued")
-error_re = re.compile(r"^!!\s+(.+)")
-warning_line_re = re.compile(r"^Warning\s+line\s+(\d+)\s*:\s*(.+)")
-warning_dash_re = re.compile(r"^Warning\s*--(.+)$")
-
-# --- MiKTeX 风格（与 makeindex.py 保持一致）-----------------------------------
-# MiKTeX 的 makeindex/glossaries 不写 `##` 前缀，而是 `....done (N entries accepted, M rejected)`。
-miktex_entries_re = re.compile(r"done\s*\((\d+)\s+entries?\s+accepted,\s*(\d+)\s+rejected\)")
-miktex_style_error_re = re.compile(r"^\*\*\s+(.+?)\s*\(file\s*=\s*(.+?),\s*line\s*=\s*(\d+)\)\s*:\s*$")
-miktex_style_error_brief_re = re.compile(r"^\*\*\s+(.+)$")
-
-xindy_error_re = re.compile(r"^ERROR:\s*(.+)")
-xindy_warning_re = re.compile(r"^WARNING:\s*(.+)")
-xindy_loading_module_re = re.compile(r"Loading module\s+(.+)")
-xindy_letter_groups_re = re.compile(r"Added\s+(\d+)\s+letter groups")
-xindy_markup_rules_re = re.compile(r"Markup( \S+)?\s*.*?(\d+)\s+rules?")
-xindy_total_entries_re = re.compile(r"Total entries:\s*(\d+)")
+from .index_patterns import (
+    entries_re,
+    error_re,
+    miktex_entries_re,
+    miktex_style_error_brief_re,
+    miktex_style_error_re,
+    warning_dash_re,
+    warning_line_re,
+    warnings_issued_re,
+)
+from .xindy_patterns import scan_xindy
 
 
 class GlossariesParser(BaseLogParser):
     """Glossaries 术语表解析器：解析 .glg 与 Makeindex 类输出。"""
+
     def __init__(self, root_file: str | None = None) -> None:
         """初始化 GlossariesParser：调用父类并设置 glossaries 默认工具元数据。"""
         super().__init__(root_file)
@@ -36,6 +30,8 @@ class GlossariesParser(BaseLogParser):
         self._acronym_entries = 0
         self._symbol_entries = 0
         self._warnings_count = 0
+        #: 上一条 `** Input style error (...):` 标题行，等待 `--` 续行补正文。
+        self._pending_style_error: LogEntry | None = None
 
     def _detect_format(self, log_text: str) -> str:
         head = "\n".join(log_text.split("\n")[:50])
@@ -63,6 +59,7 @@ class GlossariesParser(BaseLogParser):
         self._acronym_entries = 0
         self._symbol_entries = 0
         self._warnings_count = 0
+        self._pending_style_error = None
 
         fmt = self._detect_format(log_text)
         entries_count = 0
@@ -123,10 +120,8 @@ class GlossariesParser(BaseLogParser):
             stats_copy["warnings_count"] = self._warnings_count
             result.stats = stats_copy
         finally:
-            try:
+            with suppress(AttributeError):
                 delattr(self, "_source_path_hint")
-            except AttributeError:
-                pass
         return result
 
     def _parse_makeindex(self, log_text: str) -> tuple[int, int]:
@@ -136,6 +131,17 @@ class GlossariesParser(BaseLogParser):
         warning_entries_seen = 0
         for raw_line in log_text.split("\n"):
             line = raw_line.strip()
+
+            # MiKTeX style error 是两行结构：标题行 + `-- 明细` 续行。
+            if self._pending_style_error is not None:
+                if line.startswith("--"):
+                    detail = line[2:].strip()
+                    if detail:
+                        self._pending_style_error.text = f"{self._pending_style_error.text}：{detail}"
+                    self._pending_style_error = None
+                    continue
+                self._pending_style_error = None
+
             m = entries_re.match(line)
             if m:
                 entries_count = int(m.group(1))
@@ -150,14 +156,13 @@ class GlossariesParser(BaseLogParser):
                 continue
             m = miktex_style_error_re.match(line)
             if m:
-                self.build_log.append(
-                    LogEntry(
-                        level=LogLevel.ERROR,
-                        file=self._resolve_style_file(m.group(2)),
-                        line=int(m.group(3)),
-                        text=m.group(1).strip(),
-                    )
+                self._pending_style_error = LogEntry(
+                    level=LogLevel.ERROR,
+                    file=m.group(2) or "",
+                    line=int(m.group(3)),
+                    text=m.group(1).strip(),
                 )
+                self.build_log.append(self._pending_style_error)
                 continue
             m = miktex_style_error_brief_re.match(line)
             if m:
@@ -207,78 +212,39 @@ class GlossariesParser(BaseLogParser):
                 continue
         return entries_count, max(warnings, warning_entries_seen)
 
-    @staticmethod
-    def _resolve_style_file(filename: str) -> str:
-        """样式文件路径原样保留（`.ist` / `.xdy`），便于判断是哪个文件出问题。"""
-        return filename or ""
-
     def _parse_xindy(self, log_text: str) -> tuple[int, int]:
         file_ref = self.root_file
-        entries_count = 0
-        warnings = 0
-        for line in log_text.split("\n"):
-            m = xindy_error_re.match(line)
-            if m:
-                self.build_log.append(
-                    LogEntry(
-                        level=LogLevel.ERROR,
-                        file=file_ref,
-                        line=1,
-                        text=m.group(1).strip(),
-                    )
+        scan = scan_xindy(log_text)
+
+        for text in scan.errors:
+            self.build_log.append(LogEntry(level=LogLevel.ERROR, file=file_ref, line=1, text=text))
+        for text in scan.warnings:
+            self.build_log.append(LogEntry(level=LogLevel.WARNING, file=file_ref, line=1, text=text))
+        for module in scan.modules:
+            self.build_log.append(
+                LogEntry(
+                    level=LogLevel.INFO,
+                    file=file_ref,
+                    line=1,
+                    text=f"Loading module {module}",
                 )
-                continue
-            m = xindy_warning_re.match(line)
-            if m:
-                self.build_log.append(
-                    LogEntry(
-                        level=LogLevel.WARNING,
-                        file=file_ref,
-                        line=1,
-                        text=m.group(1).strip(),
-                    )
+            )
+        for count in scan.letter_groups:
+            self.build_log.append(
+                LogEntry(
+                    level=LogLevel.INFO,
+                    file=file_ref,
+                    line=1,
+                    text=f"Added {count} letter groups",
                 )
-                warnings += 1
-                continue
-            m = xindy_loading_module_re.match(line)
-            if m:
-                self.build_log.append(
-                    LogEntry(
-                        level=LogLevel.INFO,
-                        file=file_ref,
-                        line=1,
-                        text=f"Loading module {m.group(1).strip()}",
-                    )
+            )
+        for _ in scan.markup_rule_counts:
+            self.build_log.append(
+                LogEntry(
+                    level=LogLevel.INFO,
+                    file=file_ref,
+                    line=1,
+                    text="Markup rules processed",
                 )
-                continue
-            m = xindy_letter_groups_re.search(line)
-            if m:
-                self.build_log.append(
-                    LogEntry(
-                        level=LogLevel.INFO,
-                        file=file_ref,
-                        line=1,
-                        text=f"Added {m.group(1)} letter groups",
-                    )
-                )
-                continue
-            m = xindy_markup_rules_re.search(line)
-            if m:
-                self.build_log.append(
-                    LogEntry(
-                        level=LogLevel.INFO,
-                        file=file_ref,
-                        line=1,
-                        text="Markup rules processed",
-                    )
-                )
-                continue
-            m = xindy_total_entries_re.search(line)
-            if m:
-                entries_count = max(entries_count, int(m.group(1)))
-                continue
-            fallback = re.search(r"(\d+)\s+entries?", line)
-            if fallback:
-                entries_count = max(entries_count, int(fallback.group(1)))
-                continue
-        return entries_count, warnings
+            )
+        return scan.total_entries, len(scan.warnings)

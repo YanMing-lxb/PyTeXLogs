@@ -3,8 +3,6 @@
 选项清单从 argparse 解析器自动提取，避免 CLI 新增参数后补全脚本漂移。
 """
 
-from __future__ import annotations
-
 import argparse
 
 __all__ = ["render_completion", "option_strings"]

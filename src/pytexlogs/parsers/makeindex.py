@@ -1,34 +1,27 @@
 """Makeindex 索引 .ilg 日志解析器。"""
 
-import re
 from typing import Any
 
 from ..core.models import BaseLogParser, LogEntry, LogLevel, ParsedLog
-
-# --- TeX Live 风格（## 前缀）------------------------------------------------
-lines_read_re = re.compile(r"^##\s+(\d+)\s+lines read")
-entries_re = re.compile(r"^##\s+(\d+)\s+entries accepted,\s*(\d+)\s+rejected")
-warnings_issued_re = re.compile(r"^##\s+(\d+)\s+warnings issued")
-processing_time_re = re.compile(r"Processing time:\s*([\d.]+)\s*sec")
-error_re = re.compile(r"^!!\s+(.+)")
-warning_line_re = re.compile(r"^Warning\s+line\s+(\d+)\s*:\s*(.+)")
-warning_dash_re = re.compile(r"^Warning\s*--(.+)$")
-
-# --- MiKTeX 风格（点进度 + ** 前缀）------------------------------------------
-# TeX Live 用 `## 95 entries accepted`，MiKTeX 用 `....done (95 entries accepted, 0 rejected)`。
-# 两种都要覆盖，否则 MiKTeX 用户的 .ilg 统计全部丢失。
-miktex_entries_re = re.compile(
-    r"done\s*\((\d+)\s+entries?\s+accepted,\s*(\d+)\s+rejected\)"
+from .index_patterns import (
+    entries_re,
+    error_re,
+    lines_read_re,
+    miktex_entries_re,
+    miktex_redefined_re,
+    miktex_style_error_brief_re,
+    miktex_style_error_re,
+    miktex_written_re,
+    processing_time_re,
+    warning_dash_re,
+    warning_line_re,
+    warnings_issued_re,
 )
-miktex_written_re = re.compile(r"done\s*\((\d+)\s+lines?\s+written,\s*(\d+)\s+warnings?\)")
-# MiKTeX 用 `** Input style error (file = ..., line = 36):` 开头、续行以 `-- ` 缩进说明。
-miktex_style_error_re = re.compile(r"^\*\*\s+(.+?)\s*\(file\s*=\s*(.+?),\s*line\s*=\s*(\d+)\)\s*:\s*$")
-miktex_style_error_brief_re = re.compile(r"^\*\*\s+(.+)$")
-miktex_redefined_re = re.compile(r"done\s*\((\d+)\s+attributes?\s+redefined,\s*(\d+)\s+ignored\)")
 
 
 class MakeindexParser(BaseLogParser):
     """Makeindex 索引解析器：解析 .ilg 与 makeindex 输出。"""
+
     def __init__(self, root_file: str | None = None) -> None:
         """初始化 MakeindexParser：调用父类并设置 makeindex 默认工具元数据。"""
         super().__init__(root_file)
@@ -98,9 +91,7 @@ class MakeindexParser(BaseLogParser):
             if stripped.startswith("--"):
                 detail = stripped[2:].strip()
                 if detail:
-                    self._pending_style_error.text = (
-                        f"{self._pending_style_error.text}：{detail}"
-                    )
+                    self._pending_style_error.text = f"{self._pending_style_error.text}：{detail}"
                 # 续行处理完毕，放行当前行继续走下面的分类逻辑：
                 # 标题与续行必然成对出现，因此这里直接 return 是安全的。
                 self._pending_style_error = None

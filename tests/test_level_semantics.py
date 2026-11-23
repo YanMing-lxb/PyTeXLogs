@@ -1,8 +1,16 @@
 """0.6.0 等级语义回归：TYPESET 是"提示"，排在 INFO 之后，不算 warning。"""
 
-from pytexlogs import LogEntry, LogLevel, filter_severity
-from pytexlogs.cli.args import _SEVERITY_LEVEL
-from pytexlogs.core.models import _SEVERITY_RANK
+from pytexlogs import (
+    LogEntry,
+    LogLevel,
+    ParsedPipelineReport,
+    ToolResult,
+    ToolResultReport,
+    filter_by_level,
+    filter_severity,
+)
+from pytexlogs.cli.args import _SEVERITY_LEVEL, _flatten_entries
+from pytexlogs.core.models import _SEVERITY_RANK, ReportEntry
 
 
 def test_typeset_is_below_info_in_severity() -> None:
@@ -15,7 +23,7 @@ def test_typeset_is_below_info_in_severity() -> None:
 def test_prompt_levels_after_typeset() -> None:
     """排版类提示（字体/图形/页面）比 TYPESET 更靠后，且都弱于 INFO。"""
     for level in (LogLevel.FONT, LogLevel.GRAPHIC, LogLevel.PAGE):
-        assert LogLevel.INFO < level
+        assert level > LogLevel.INFO
         assert level.severity > LogLevel.TYPESET.severity
 
 
@@ -48,3 +56,41 @@ def test_warning_filter_excludes_typesetting() -> None:
     ]
     kept = filter_severity(entries, min_level=LogLevel.WARNING)
     assert [e.level for e in kept] == [LogLevel.ERROR, LogLevel.WARNING]
+
+
+def test_cli_open_entries_filter_uses_canonical_severity() -> None:
+    """--open 走的 _flatten_entries 必须和 filter_by_level 使用同一套等级顺序。"""
+    result = ToolResult(
+        tool_name="pdflatex",
+        category="compile",
+        entries=[
+            LogEntry(level=LogLevel.TYPESET, file="a.tex", line=1, text="Overfull \\hbox"),
+            LogEntry(level=LogLevel.INFO, file="a.tex", line=2, text="note"),
+        ],
+    )
+    flat, min_level = _flatten_entries([result], "info")
+    assert [entry.text for entry, *_rest in flat] == ["note"]
+    assert min_level == LogLevel.INFO
+
+
+def test_report_filter_counts_all_log_levels() -> None:
+    """报告过滤后的 severity_counts 必须包含 font/graphic/page 自己的桶。"""
+    report = ParsedPipelineReport(
+        tool_results=[
+            ToolResultReport(
+                tool_name="pdflatex",
+                category="compile",
+                entries=[
+                    ReportEntry(level="font", file="a.tex", line=1, text="font warning"),
+                    ReportEntry(level="graphic", file="a.tex", line=2, text="graphic warning"),
+                    ReportEntry(level="error", file="a.tex", line=3, text="error"),
+                ],
+            )
+        ]
+    )
+    filtered = filter_by_level(report, LogLevel.PAGE)
+    bucket = filtered.severity_counts["compile"]
+    assert bucket["font"] == 1
+    assert bucket["graphic"] == 1
+    assert bucket["error"] == 1
+    assert bucket["total"] == 3

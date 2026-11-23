@@ -37,7 +37,7 @@ def main() -> int:
         for name, content in samples.items():
             (td_path / name).write_text(content, encoding="utf-8")
             parsed = pytexlogs.parse_log_file(td_path / name)
-            from pytexlogs.manager import ToolResult, ToolResultStats
+            from pytexlogs import ToolResult, ToolResultStats
             tr = ToolResult(
                 tool_name=name,
                 category="compile",

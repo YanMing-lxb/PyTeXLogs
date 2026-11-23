@@ -1,95 +1,49 @@
 """Xindy 索引 .alg 日志解析器实现。"""
 
-import re
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
 from ..core.models import BaseLogParser, LogEntry, LogLevel, ParsedLog
-
-xindy_error_re = re.compile(r"^ERROR:\s*(.+)")
-xindy_warning_re = re.compile(r"^WARNING:\s*(.+)")
-xindy_loading_module_re = re.compile(r"Loading module\s+(.+)")
-xindy_letter_groups_re = re.compile(r"Added\s+(\d+)\s+letter groups")
-xindy_markup_rules_re = re.compile(r"Markup( \S+)?\s*.*?(\d+)\s+rules?")
-xindy_total_entries_re = re.compile(r"Total entries:\s*(\d+)")
+from .xindy_patterns import scan_xindy
 
 
 class XindyParser(BaseLogParser):
     """Xindy 索引解析器：解析 .alg 日志输出。"""
+
     def parse(self, log_text: str, root_file: str | None = None) -> ParsedLog:
         """解析 Xindy .alg 输出文本并返回 ParsedLog。"""
         if root_file:
             self.root_file = root_file
 
-        check_path = root_file or getattr(self, "_source_path_hint", "") or ""
-        if check_path.endswith(".glg"):
-            category = "glossary"
-        else:
-            category = "index"
+        # 注册表里 xindy 的 category 恒为 index；.glg 的术语表语义由
+        # makeglossaries/GlossariesParser 负责，解析器不按后缀改写类别。
+        category = "index"
+
+        scan = scan_xindy(log_text)
 
         stats: dict[str, Any] = {
-            "letter_groups_added": 0,
-            "modules_loaded": 0,
-            "markup_rules": 0,
-            "total_entries": 0,
+            "letter_groups_added": scan.letter_groups[-1] if scan.letter_groups else 0,
+            "modules_loaded": len(scan.modules),
+            "markup_rules": sum(scan.markup_rule_counts),
+            "total_entries": scan.total_entries,
         }
         entries: list[LogEntry] = []
+        file_ref = self.root_file or ""
 
-        lines = log_text.split("\n")
-        for line in lines:
-            line = line.strip("\x00")
-
-            error_match = xindy_error_re.match(line)
-            if error_match:
-                entries.append(
-                    LogEntry(
-                        level=LogLevel.ERROR,
-                        file=self.root_file or "",
-                        line=1,
-                        text=error_match.group(1),
-                    )
+        for text in scan.errors:
+            entries.append(LogEntry(level=LogLevel.ERROR, file=file_ref, line=1, text=text))
+        for text in scan.warnings:
+            entries.append(LogEntry(level=LogLevel.WARNING, file=file_ref, line=1, text=text))
+        for module in scan.modules:
+            entries.append(
+                LogEntry(
+                    level=LogLevel.INFO,
+                    file=file_ref,
+                    line=1,
+                    text=f"Loading module {module}",
                 )
-                continue
-
-            warning_match = xindy_warning_re.match(line)
-            if warning_match:
-                entries.append(
-                    LogEntry(
-                        level=LogLevel.WARNING,
-                        file=self.root_file or "",
-                        line=1,
-                        text=warning_match.group(1),
-                    )
-                )
-                continue
-
-            loading_match = xindy_loading_module_re.match(line)
-            if loading_match:
-                stats["modules_loaded"] += 1
-                entries.append(
-                    LogEntry(
-                        level=LogLevel.INFO,
-                        file=self.root_file or "",
-                        line=1,
-                        text=loading_match.group(1),
-                    )
-                )
-                continue
-
-            letter_groups_match = xindy_letter_groups_re.search(line)
-            if letter_groups_match:
-                stats["letter_groups_added"] = int(letter_groups_match.group(1))
-                continue
-
-            markup_rules_match = xindy_markup_rules_re.search(line)
-            if markup_rules_match:
-                stats["markup_rules"] += int(markup_rules_match.group(2))
-                continue
-
-            total_entries_match = xindy_total_entries_re.search(line)
-            if total_entries_match:
-                stats["total_entries"] = int(total_entries_match.group(1))
-                continue
+            )
 
         return ParsedLog(
             entries=entries,
@@ -123,8 +77,6 @@ class XindyParser(BaseLogParser):
             result = self.parse(text, root_file or self.root_file)
             result.source_path = str(path)
         finally:
-            try:
+            with suppress(AttributeError):
                 delattr(self, "_source_path_hint")
-            except AttributeError:
-                pass
         return result

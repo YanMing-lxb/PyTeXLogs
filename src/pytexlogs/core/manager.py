@@ -1,18 +1,43 @@
 """LogParserManager：按 step/suffix 调度解析器并汇总结果。"""
 
 import logging
+from collections.abc import Iterator
+from dataclasses import dataclass
 from pathlib import Path
 
 from .models import (
     BaseLogParser,
-    LogLevel,
     ParsedLog,
     ToolResult,
     ToolResultStats,
 )
 from .registry import LogParserRegistry, LogParserSpec
+from .stats import recompute_stats
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(slots=True)
+class StepOutcome:
+    """单个 step 的执行结果；run 与 run_pipeline 共用这一层。
+
+    ``skipped_reason`` 非空表示该 step 没有产生解析结果；``error`` 非空表示
+    解析器抛出异常。两种状态都保留原因，由调用方决定记录 warning、计入
+    ``skipped_steps`` 还是生成带 ``parse_exception`` 的空报告。
+    """
+
+    step: str
+    spec: LogParserSpec | None
+    parsed: ParsedLog | None = None
+    log_path: Path | None = None
+    source_path: str | None = None
+    error: Exception | None = None
+    skipped_reason: str | None = None
+
+    @property
+    def skipped(self) -> bool:
+        """是否被跳过（没有可用的解析结果）。"""
+        return self.skipped_reason is not None
 
 
 def _parsed_log_to_tool_result(
@@ -21,11 +46,9 @@ def _parsed_log_to_tool_result(
     category: str,
     importance: str,
 ) -> ToolResult:
-    error_count = sum(1 for e in parsed.entries if e.level == LogLevel.ERROR)
-    warning_count = sum(1 for e in parsed.entries if e.level == LogLevel.WARNING)
+    """把 ParsedLog 转成 ToolResult，并用统一口径重算等级统计。"""
     merged_stats = dict(parsed.stats)
-    merged_stats.setdefault("error", error_count)
-    merged_stats.setdefault("warning", warning_count)
+    recompute_stats(parsed.entries, merged_stats)
     return ToolResult(
         tool_name=tool_name,
         category=category,
@@ -74,11 +97,120 @@ class LogParserManager:
                 return result
         return spec.default_discover(jobname, auxdir)
 
-    def _resolve_parser(self, step_name: str) -> tuple[type[BaseLogParser] | None, LogParserSpec | None]:
-        spec = self.registry.lookup(step_name)
-        if spec is None:
-            return None, None
-        return spec.parser_cls, spec
+    def iter_steps(
+        self,
+        jobname: str,
+        auxdir: str | Path,
+        steps: list[str] | None = None,
+        captured_outputs: dict[str, str] | None = None,
+        *,
+        root_file: str | None = None,
+        dedupe_by_parser: bool = True,
+        captured_source_prefix: str | None = None,
+    ) -> Iterator[StepOutcome]:
+        """按 steps 顺序执行发现与解析，逐步产出 StepOutcome。
+
+        - ``dedupe_by_parser=True``：同一解析器 + 同一来源只执行一次；
+        - ``captured_source_prefix``：为 captured 文本生成的 ParsedLog 改写
+          ``source_path``（manager 兼容旧行为用 ``"captured:"``）。
+        """
+        if steps is None:
+            from .logkind import _append_captured_steps, plan_default_steps
+
+            steps = _append_captured_steps(plan_default_steps(jobname, auxdir), captured_outputs)
+        captured_outputs = captured_outputs or {}
+
+        seen: set[tuple[str, str]] = set()
+        consumed_paths: dict[Path, str] = {}
+
+        for step_name in steps:
+            spec = self.registry.lookup(step_name)
+            if spec is None:
+                logger.warning("未找到 step=%s 对应的日志 parser，跳过", step_name)
+                yield StepOutcome(step=step_name, spec=None, skipped_reason="unregistered")
+                continue
+
+            parser = spec.parser_cls(root_file=root_file)
+            parser_cls_name = spec.parser_cls.__name__
+
+            if step_name in captured_outputs:
+                key = f"captured:{step_name}"
+                if dedupe_by_parser and (parser_cls_name, key) in seen:
+                    yield StepOutcome(step=step_name, spec=spec, skipped_reason="duplicate")
+                    continue
+                text = captured_outputs[step_name]
+                try:
+                    parsed = parser.parse(text, root_file=root_file)
+                except Exception as exc:  # noqa: BLE001 — 单步失败不能中断整个目录
+                    logger.warning("step=%s 解析失败: %s", step_name, exc, exc_info=True)
+                    yield StepOutcome(step=step_name, spec=spec, error=exc, skipped_reason="error")
+                    continue
+                if parsed is None:
+                    yield StepOutcome(step=step_name, spec=spec, skipped_reason="no_result")
+                    continue
+                if captured_source_prefix is not None:
+                    parsed.source_path = f"{captured_source_prefix}{step_name}"
+                if dedupe_by_parser:
+                    seen.add((parser_cls_name, key))
+                yield StepOutcome(
+                    step=step_name,
+                    spec=spec,
+                    parsed=parsed,
+                    source_path=parsed.source_path or None,
+                )
+                continue
+
+            if spec.discover_hook is not None:
+                log_path = spec.discover_hook(jobname, Path(auxdir))
+            else:
+                log_path = spec.default_discover(jobname, auxdir)
+            if log_path is None:
+                yield StepOutcome(step=step_name, spec=spec, skipped_reason="no_log")
+                continue
+
+            try:
+                resolved = log_path.resolve()
+            except OSError:
+                resolved = log_path
+            if resolved in consumed_paths:
+                logger.debug(
+                    "step=%s 的日志 %s 已被 step=%s 消费，跳过",
+                    step_name,
+                    log_path,
+                    consumed_paths[resolved],
+                )
+                yield StepOutcome(step=step_name, spec=spec, skipped_reason="consumed")
+                continue
+            consumed_paths[resolved] = step_name
+
+            key = str(log_path)
+            if dedupe_by_parser and (parser_cls_name, key) in seen:
+                yield StepOutcome(step=step_name, spec=spec, skipped_reason="duplicate")
+                continue
+
+            try:
+                parsed = parser.parse_file(log_path, root_file=root_file)
+            except OSError as exc:
+                logger.warning("step=%s 读取日志失败: %s", step_name, exc, exc_info=True)
+                yield StepOutcome(step=step_name, spec=spec, skipped_reason="read_error")
+                continue
+            except Exception as exc:  # noqa: BLE001 — 与 run_pipeline 保持一致
+                logger.warning("step=%s 解析失败: %s", step_name, exc, exc_info=True)
+                yield StepOutcome(step=step_name, spec=spec, error=exc, skipped_reason="error")
+                continue
+
+            if parsed is None:
+                yield StepOutcome(step=step_name, spec=spec, skipped_reason="no_result")
+                continue
+            if dedupe_by_parser:
+                seen.add((parser_cls_name, key))
+            yield StepOutcome(
+                step=step_name,
+                spec=spec,
+                parsed=parsed,
+                log_path=log_path,
+                source_path=parsed.source_path or str(log_path),
+            )
 
     def run(
         self,
@@ -86,71 +218,27 @@ class LogParserManager:
         auxdir: str | Path,
         steps: list[str] | None = None,
         captured_outputs: dict[str, str] | None = None,
+        *,
+        root_file: str | None = None,
     ) -> list[ToolResult]:
         """按 steps 顺序发现并解析日志，返回 list[ToolResult]。"""
-        if steps is None:
-            from .logkind import plan_default_steps
-
-            steps = plan_default_steps(jobname, auxdir)
-        captured_outputs = captured_outputs or {}
         results: list[ToolResult] = []
-        seen: set[tuple[str, str]] = set()
-        consumed_paths: dict[Path, str] = {}
-
-        for step_name in steps:
-            parser_cls, spec = self._resolve_parser(step_name)
-            if parser_cls is None:
-                logger.warning("未找到 step=%s 对应的日志 parser，跳过", step_name)
+        for outcome in self.iter_steps(
+            jobname,
+            auxdir,
+            steps,
+            captured_outputs,
+            root_file=root_file,
+            dedupe_by_parser=True,
+            captured_source_prefix="captured:",
+        ):
+            if outcome.spec is None or outcome.parsed is None:
                 continue
-
-            parser = parser_cls()
-            parser_cls_name = parser_cls.__name__
-            parsed: ParsedLog | None = None
-            key: str | None = None
-
-            if step_name in captured_outputs:
-                key = f"captured:{step_name}"
-                if (parser_cls_name, key) in seen:
-                    continue
-                text = captured_outputs[step_name]
-                parsed = parser.parse(text)
-                parsed.source_path = key
-            else:
-                log_path = self.discover_log_path(parser_cls, jobname, auxdir)
-                if log_path is None:
-                    continue
-                try:
-                    resolved_key = str(log_path.resolve())
-                except OSError:
-                    resolved_key = str(log_path)
-                if resolved_key in consumed_paths:
-                    logger.debug(
-                        "step=%s 的日志 %s 已被 step=%s 消费，跳过",
-                        step_name, log_path, consumed_paths[resolved_key],
-                    )
-                    continue
-                consumed_paths[resolved_key] = step_name
-                key = str(log_path)
-                if (parser_cls_name, key) in seen:
-                    continue
-                parsed = parser.parse_file(log_path)
-
-            if parsed is not None and key is not None:
-                seen.add((parser_cls_name, key))
-                if spec is not None:
-                    result_tool_name = step_name
-                    result_category = spec.category
-                    result_importance = spec.importance
-                else:
-                    result_tool_name = step_name
-                    result_category = parsed.category or "custom"
-                    result_importance = parsed.importance or "low"
-                tool_result = _parsed_log_to_tool_result(
-                    parsed,
-                    tool_name=result_tool_name,
-                    category=result_category,
-                    importance=result_importance,
-                )
-                results.append(tool_result)
-
+            tool_result = _parsed_log_to_tool_result(
+                outcome.parsed,
+                tool_name=outcome.step,
+                category=outcome.spec.category,
+                importance=outcome.spec.importance,
+            )
+            results.append(tool_result)
         return results

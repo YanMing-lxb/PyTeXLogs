@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from ..core.models import BaseLogParser, LogEntry, LogLevel, ParsedLog
+from .path_utils import resolve_relative_path_from
 
 __all__ = [
     "BIBER_WARNING_HINTS",
@@ -20,26 +21,26 @@ __all__ = [
 
 
 BIBER_WARNING_HINTS: dict[str, str] = {
-    "I didn't find a database entry":
-        "Biber 未找到对应参考文献键：检查 .bib 文件中 @xxx{key, 是否存在，或键名与 \\cite/\\autocite 是否一致。",
-    "entry `.+?' has":
-        "条目重复或字段冲突：检查 .bib 中是否存在重复键，或同一条目同一字段重复定义。",
-    "WARN -":
-        "通用 Biber 警告：可能是数据校验问题，确认 .bib 字段格式与 biblatex 要求一致。",
+    "I didn't find a database entry": "Biber 未找到对应参考文献键：检查 .bib 文件中 @xxx{key, 是否存在，或键名与 \\cite/\\autocite 是否一致。",
+    "Duplicate entry key": "参考文献条目键重复：检查 .bib 中是否存在重复键，或同一条目同一字段重复定义。",
+    "WARN -": "通用 Biber 警告：可能是数据校验问题，确认 .bib 字段格式与 biblatex 要求一致。",
 }
 
 biber_info_re = re.compile(r"^INFO - Found BibTeX data source \'(.*)\'$")
 biber_error_re = re.compile(r"^ERROR - BibTeX subsystem.*, line (\d+), (.*)$")
-biber_missing_entry_re = re.compile(
-    r"^WARN - (I didn\'t find a database entry for \'.*?\'.*)$"
-)
+#: 真实 .blg 行首带 ``[220] Biber.pm:132> `` 位置前缀，先剥离再匹配 WARN/ERROR。
+_biber_line_prefix_re = re.compile(r"^\[\d+\]\s+[^\s>]*>\s+")
+biber_missing_entry_re = re.compile(r"^WARN - (I didn\'t find a database entry for \'.*?\'.*)$")
 biber_line_warning_re = re.compile(r"^WARN - (.*? entry `(.+?)\' .*)$")
 biber_generic_warning_re = re.compile(r"^WARN - (.*)$")
 biber_generic_error_re = re.compile(r"^ERROR - (.*)$")
+#: ``Found N citekeys in bib section M``：Biber 在各段报告的引用键总数。
+_biber_citekeys_re = re.compile(r"Found\s+(\d+)\s+citekeys")
 
 
 class BiberParser(BaseLogParser):
     """Biber 参考文献解析器：解析 .bcf 与 .blg 日志。"""
+
     def __init__(self, root_file: str | None = None) -> None:
         """初始化 BiberParser：调用父类并设置 biber 默认工具元数据。"""
         super().__init__(root_file)
@@ -58,15 +59,18 @@ class BiberParser(BaseLogParser):
         self.bib_file_stack = [self.root_file]
         self.build_log.clear()
         self._database_files = []
+        self._resolved_paths.clear()
+        self._total_citations = 0
 
-        lines = log_text.split("\n")
+        text = log_text.replace("\r\n", "\n").replace("\r", "\n")
+        lines = text.split("\n")
         for line in lines:
             self._parse_line(line)
 
         stats: dict[str, Any] = {
             "database_files": self._database_files[:],
-            "total_citations": 0,
-            "unique_citations": 0,
+            "total_citations": self._total_citations,
+            "unique_citations": len(set(self._collect_bcf_citekeys())),
         }
 
         return ParsedLog(
@@ -78,8 +82,32 @@ class BiberParser(BaseLogParser):
             stats=stats,
         )
 
+    def _collect_bcf_citekeys(self) -> list[str]:
+        """从同目录 .bcf 收集 citekey；找不到 bcf 时返回空列表。
+
+        ``.blg`` 本身只报告引用键数量，不含键名；去重必须读 bcf。优先用
+        ``parse_file`` 提供的日志路径找同目录 bcf，其次用 ``root_file`` 推导。
+        """
+        candidates: list[Path] = []
+        source_hint = getattr(self, "_source_path_hint", "")
+        if source_hint:
+            candidates.append(Path(source_hint).with_suffix(".bcf"))
+        if self.root_file:
+            bcf = Path(self.root_file).with_suffix(".bcf")
+            if bcf not in candidates:
+                candidates.append(bcf)
+
+        for candidate in candidates:
+            if candidate.exists():
+                return self.parse_bcf(candidate)
+        return []
+
     def _parse_line(self, line: str) -> None:
-        line = line.strip("\x00")
+        line = _biber_line_prefix_re.sub("", line.strip("\x00"))
+
+        citekeys_match = _biber_citekeys_re.search(line)
+        if citekeys_match:
+            self._total_citations += int(citekeys_match.group(1))
 
         info_match = biber_info_re.match(line)
         if info_match:
@@ -157,18 +185,10 @@ class BiberParser(BaseLogParser):
             return
 
     def _resolve_bib_file(self, filename: str) -> str:
-        if not filename:
-            return self.root_file
-
         if filename in self._resolved_paths:
             return self._resolved_paths[filename]
 
-        root_dir = Path(self.root_file).parent
-        try:
-            resolved = str((root_dir / filename).resolve())
-        except Exception:  # noqa: BLE001
-            resolved = filename
-
+        resolved = resolve_relative_path_from(filename, self.root_file, getattr(self, "_source_path_hint", ""))
         self._resolved_paths[filename] = resolved
         return resolved
 
@@ -180,9 +200,11 @@ class BiberParser(BaseLogParser):
         try:
             tree = ET.parse(path)
             root = tree.getroot()
-            for elem in root.iter():
-                if (elem.tag.endswith("}citekey") or elem.tag == "citekey") and elem.text:
-                    result.append(elem.text)
+            result.extend(
+                elem.text
+                for elem in root.iter()
+                if (elem.tag.endswith("}citekey") or elem.tag == "citekey") and elem.text
+            )
         except Exception:  # noqa: BLE001,S110
             pass
         return result

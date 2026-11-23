@@ -13,6 +13,7 @@ asymptote_output_re = re.compile(r"Output written on\s+(.+?\.(?:pdf|eps))")
 
 class AsymptoteParser(BaseLogParser):
     """Asymptote .asy 日志解析器。"""
+
     def __init__(self, root_file: str | None = None) -> None:
         """初始化 AsymptoteParser：调用父类并设置默认工具名与类别。"""
         super().__init__(root_file)

@@ -1,25 +1,22 @@
 """Nomencl 符号表 .nlg 日志解析器实现。"""
 
-import re
 from typing import Any
 
 from ..core.models import BaseLogParser, LogEntry, LogLevel, ParsedLog
-
-entries_re = re.compile(r"^##\s+(\d+)\s+entries accepted,\s*(\d+)\s+rejected")
-error_re = re.compile(r"^!!\s+(.+)")
-warning_line_re = re.compile(r"^Warning\s+line\s+(\d+)\s*:\s*(.+)")
-warning_dash_re = re.compile(r"^Warning--(.+)")
-
-# MiKTeX 用 `....done (N entries accepted, M rejected)` 而非 `##` 前缀。
-miktex_entries_re = re.compile(r"done\s*\((\d+)\s+entries?\s+accepted,\s*(\d+)\s+rejected\)")
-# MiKTeX 用 `** Input style error (file = ..., line = N):` 报告 .ist 语法问题，
-# 续行以 `   -- 说明` 给出具体原因。nomencl.ist 在 MiKTeX 上几乎必然触发。
-miktex_style_error_re = re.compile(r"^\*\*\s+(.+?)\s*\(file\s*=\s*(.+?),\s*line\s*=\s*(\d+)\)\s*:\s*$")
-miktex_style_error_brief_re = re.compile(r"^\*\*\s+(.+)$")
+from .index_patterns import (
+    entries_re,
+    error_re,
+    miktex_entries_re,
+    miktex_style_error_brief_re,
+    miktex_style_error_re,
+    warning_dash_re,
+    warning_line_re,
+)
 
 
 class NomenclParser(BaseLogParser):
     """Nomencl 符号表解析器：解析 .nlg 日志。"""
+
     def __init__(self, root_file: str | None = None) -> None:
         """初始化 NomenclParser：调用父类并设置 nomencl 默认工具元数据。"""
         super().__init__(root_file)

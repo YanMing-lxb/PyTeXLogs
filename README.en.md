@@ -15,7 +15,7 @@ pip install pytexlogs
 uv add pytexlogs[rich]
 
 # CLI only: install as a global tool
-uv tool install --python 3.10 pytexlogs
+uv tool install --python 3.15 pytexlogs
 ```
 
 ## Value Proposition · 6 Use Cases
@@ -34,8 +34,9 @@ uv tool install --python 3.10 pytexlogs
 ### 3.1 Parse a Single Log and Print Summary
 
 ```python
-from pytexlogs import parse_log_file, print_summary
+from pytexlogs import parse_log_file, print_summary, set_summary_language
 
+set_summary_language("en")
 parsed = parse_log_file("tests/fixtures/sample.log")
 print(f"Errors: {len(parsed.errors)}, Warnings: {len(parsed.warnings)}")
 print_summary([parsed], use_logger=False, non_quiet=True)
@@ -44,12 +45,13 @@ print_summary([parsed], use_logger=False, non_quiet=True)
 Output:
 
 ```
-Errors: 1, Warnings: 1
-┌─────────────┬───────┬─────────┬──────────┐
-│ Category    │ ERROR │ WARNING │ Total    │
-├─────────────┼───────┼─────────┼──────────┤
-│ compile     │ 1     │ 1       │ 2        │
-└─────────────┴───────┴─────────┴──────────┘
+Errors: 3, Warnings: 0
+============================= Error Summary ==============================
++-- [Compilation] --------------------------------------------------------
+  [E] article.cls:5 --> Undefined control sequence.
+  [E] article.cls:5 --> Emergency stop.
+  [E] article.cls:1 --> ==> Fatal error occurred, no output PDF file produced!
+--------------------------------------------------------------------------
 ```
 
 ### 3.2 CLI One-Liners
@@ -102,14 +104,14 @@ Grouped by `__all__` six sections:
 
 | Symbol | Purpose |
 |---|---|
-| `parse_log_file(path)` | One-liner to parse a single .log / .blg / .ilg etc. (auto-detects parser by extension) |
+| `parse_log_file(path)` | One-liner to parse a single .log / .blg / .ilg / .xlg etc. (auto-detects parser by extension); an explicit `.bcf` is read by Biber for citekey statistics only and yields no log entries |
 | `parse_log_text(text, engine="pdflatex")` | One-liner to parse text string (captured_outputs / subprocess.stdout scenarios) |
-| `parse_auxdir(jobname, auxdir, steps, captured_outputs)` | One-liner to scan entire LaTeX auxiliary directory |
+| `parse_auxdir(jobname, auxdir, steps, captured_outputs)` | One-liner to scan entire LaTeX auxiliary directory; `steps=None` appends missing `captured_outputs` keys |
 | `filter_severity(entries, min_level=WARNING)` | Filter log entries by severity |
-| `aggregate_stats(obj, group_by="category\|level\|parser")` | Aggregated statistics → histogram / report data source |
-| `run_pipeline(...)` | Full pipeline: discover → parse → aggregate → summarize → report (recommended) |
-| `print_summary(results, ...)` | Terminal-friendly summary printing (includes error/warning totals, HINT dicts) |
-| `show_log_entries(entries, ...)` | Visualize log entries one by one |
+| `aggregate_stats(obj, group_by="category\|level\|parser")` | Aggregated statistics → histogram / report data source; unknown `group_by` raises `ValueError` |
+| `run_pipeline(...)` | Full pipeline: discover → parse → aggregate → summarize → report (recommended); infers `jobname` from `auxdir` when omitted |
+| `print_summary(results, ...)` | Terminal-friendly summary; `show_info=True` includes info/typesetting/font/graphics/page groups, and `show_hints=True` adds error/warning hints |
+| `show_log_entries(entries, ...)` | Visualize log entries one by one; accepts `ParsedLog` / `ToolResultReport` / `ReportEntry` |
 | `format_editor_jumps(entries)` | Generate editor jump list as `file:line: message` |
 | `log_editor_jumps(entries)` | Output editor jump list via logging |
 | `set_summary_language(lang, translate_fn=None)` | Set summary language globally (zh/en) or custom translation function |
@@ -139,16 +141,18 @@ Grouped by `__all__` six sections:
 | `RefChangeTracker` | Reference citation change tracker |
 | `load_report(path)` | Restore `ParsedPipelineReport` from JSON |
 | `write_report(report, path)` | Write `ParsedPipelineReport` to JSON |
-| `to_json(obj)` | Structured export: JSON string |
-| `to_csv(obj)` | Structured export: CSV string (header `file,line,level,category,tool,text,hint,source_path`) |
-| `to_sarif(obj)` | Structured export: SARIF v2.1.0 minimal subset dict (CI / GitHub Code Scanning) |
+| `to_json(obj, include_hints=True, language=None)` | Structured export: JSON string; top-level `hints` carries file/line/tool/kind/text/text_en/commands/rule_id; `include_hints=False` keeps the old payload. Optional `language`: Chinese by default; `language="en"` renders the hint `text` in English (falls back to Chinese when English is missing), while both `text`/`text_en` fields are kept |
+| `to_csv(obj, language=None)` | Structured export: CSV string (header `file,line,level,category,tool,text,hint,source_path`). Optional `language`: Chinese by default; `language="en"` renders the `hint` column in English; the header stays unchanged. Cells starting with `= + - @` get a `'` prefix to prevent spreadsheet formula injection |
+| `to_sarif(obj, include_hints=True, language=None)` | Structured export: SARIF v2.1.0 minimal subset; hints live in `result.properties["pytexlogs/hint"]`. Optional `language`: Chinese by default; `language="en"` renders the hint `text` in English; `text_en` is still kept |
+
+Every hint carries a stable `rule_id` (`hints[].hint.rule_id` in JSON, `properties["pytexlogs/hint"].rule_id` in SARIF), so downstream tools and CI can key off it. The 41 built-in rules are listed with examples and sources in [`docs/hints-reference.md`](docs/hints-reference.md).
 
 ### 4. Constants / Hint Dictionaries (Human-facing)
 
 | Symbol | Purpose |
 |---|---|
-| `CATEGORY_LABEL` | 6 categories → Chinese labels |
-| `CATEGORY_ORDER` | 6 categories sorted order |
+| `CATEGORY_LABEL` | 8 categories → Chinese labels |
+| `CATEGORY_ORDER` | 8 categories sorted order |
 | `IMPORTANCE_LABEL` | importance high/medium/low → Chinese |
 | `LATEX_LOG_HINTS` | Common pdflatex errors → fix suggestions |
 | `BIBTEX_ERROR_HINTS` | Common bibtex errors → fix suggestions |
@@ -203,7 +207,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.15"
-      - run: pip install uv && uv tool install --python 3.10 pytexlogs
+      - run: pip install uv && uv tool install --python 3.15 pytexlogs
       - name: Compile paper
         run: latexmk -pdf -outdir=build main.tex || true
       - name: Export SARIF
@@ -217,5 +221,6 @@ jobs:
 ## Links
 
 - [CHANGELOG.md](./CHANGELOG.md) · Release notes
+- [Code modification playbook](./docs/code-modification-playbook.md) · Public API, parser, state-store, and regression conventions
 - License: **GPL-3.0-or-later** (consistent with the [LICENSE](./LICENSE) file)
 - PyPI: <https://pypi.org/project/pytexlogs/>

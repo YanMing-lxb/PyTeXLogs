@@ -1,4 +1,5 @@
 """Task 6: CLI 端到端测试（覆盖 check/summary/export/demo 4 子命令 + TR-6.1~6.5）。"""
+
 import json
 import subprocess
 import sys
@@ -69,17 +70,21 @@ class TestExportSubcommand:
         out_file = tmp_path / "out.sarif"
         r = _run_cli(
             "export",
-            "--format", "sarif",
+            "--format",
+            "sarif",
             str(_FIXTURES_DIR),
-            "--output", str(out_file),
+            "--output",
+            str(out_file),
         )
         if not out_file.exists():
             # fallback: 直接用 sample.log 位置参数
             r2 = _run_cli(
                 "export",
-                "--format", "sarif",
+                "--format",
+                "sarif",
                 str(_SAMPLE_LOG),
-                "--output", str(out_file),
+                "--output",
+                str(out_file),
             )
             r = r2
         assert out_file.exists(), f"out.sarif 未生成。stdout={r.stdout}\nstderr={r.stderr}"
@@ -109,7 +114,8 @@ class TestEditorOpen:
             "check",
             str(_SAMPLE_LOG),
             "--open",
-            "--editor", "custom:code --goto %f:%l",
+            "--editor",
+            "custom:code --goto %f:%l",
             "--dry-run",
         )
         assert "[dry-run open]" in r.stderr, f"未打印 dry-run 标记：stderr={r.stderr!r}"
@@ -145,7 +151,11 @@ for k in list(sys.modules):
         del sys.modules[k]
 
 from pytexlogs.cli import main
-rc = main(["check", r""" + '"' + str(_SAMPLE_LOG).replace("\\", "\\\\") + '"' + r"""])
+rc = main(["check", r"""
+            + '"'
+            + str(_SAMPLE_LOG).replace("\\", "\\\\")
+            + '"'
+            + r"""])
 # exitcode 应该是 1（sample.log 有 error）
 print("RC=", rc)
 sys.exit(0 if rc in (0, 1) else 2)

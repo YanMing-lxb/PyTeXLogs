@@ -73,3 +73,24 @@ def test_i():
 def test_j():
     c, o, e = _R(["check", str(_S), "--open", "--editor", "custom:code --goto %f:%l", "--dry-run"])
     assert "[dry-run open]" in e and "code --goto" in e
+
+
+def test_cli_severity_info_shows_info_and_prompt_groups(tmp_path):
+    """--severity 已经保留提示级，摘要也必须展示对应分组。"""
+    log = tmp_path / "main.log"
+    log.write_text(
+        "LaTeX Info: a useful information line\nOverfull \\hbox (12.0pt too wide) in paragraph at lines 1--2\n",
+        encoding="utf-8",
+    )
+
+    c, o, _ = _R(["check", str(log), "--severity", "info"])
+    assert c == 0
+    assert "提示汇总" in o
+    assert "a useful information line" in o
+    assert "排版提示汇总" not in o
+
+    c, o, _ = _R(["check", str(log), "--severity", "all"])
+    assert c == 0
+    assert "提示汇总" in o
+    assert "排版提示汇总" in o
+    assert "Overfull" in o

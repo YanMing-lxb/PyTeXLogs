@@ -128,7 +128,12 @@ def test_cli_lang_flag():
     out_en = run("en")
 
     has_zh = ("错误" in out_zh) or ("警告" in out_zh) or ("参考文献" in out_zh)
-    has_en_lang = ("Error Summary" in out_en) or ("Warning Summary" in out_en) or ("Bibliography" in out_en) or ("Compilation" in out_en)
+    has_en_lang = (
+        ("Error Summary" in out_en)
+        or ("Warning Summary" in out_en)
+        or ("Bibliography" in out_en)
+        or ("Compilation" in out_en)
+    )
     # If sample log doesn't trigger actual entries, at least compare header differences (if any)
     # Otherwise accept: output text differs.
     assert out_zh != out_en or (has_zh or has_en_lang)

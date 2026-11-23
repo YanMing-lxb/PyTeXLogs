@@ -14,8 +14,6 @@ Asymptote 的规则误认）。如果按“固定 10 个 step”逐个探测，�
 宁可少认一个工具，也不重复解析同一份日志。
 """
 
-from __future__ import annotations
-
 from pathlib import Path
 
 __all__ = [
@@ -47,15 +45,18 @@ def sniff_bib_tool(path: Path) -> str:
     """判断 ``.blg`` 是 BibTeX 还是 Biber 写出的。
 
     判定顺序：
-    1. 同名 ``.bcf`` 存在 → Biber（biblatex + biber 的强特征，BibTeX 不产 bcf）；
-    2. 日志头部出现 ``Biber`` / ``biblatex`` → Biber；
-    3. 其余一律按 BibTeX（包括空文件与读不到内容的情况）。
+    1. 日志头部明确写 ``Biber`` / ``biblatex`` → Biber；
+    2. 日志头部明确写 ``BibTeX`` → BibTeX（即使同目录残留旧 ``.bcf``）；
+    3. 头部无特征且同名 ``.bcf`` 存在 → Biber；
+    4. 其余一律按 BibTeX（包括空文件与读不到内容的情况）。
     """
     p = Path(path)
-    if p.with_suffix(".bcf").exists():
-        return "biber"
     head = _head(p).lower()
     if "biber" in head or "biblatex" in head:
+        return "biber"
+    if "bibtex" in head:
+        return "bibtex"
+    if p.with_suffix(".bcf").exists():
         return "biber"
     return "bibtex"
 
@@ -87,12 +88,28 @@ def sniff_index_tool(path: Path) -> str:
         return "xindy"
     if "makeindex" in head or "mendex" in head or "upmendex" in head:
         return "makeindex"
-    # 头部无特征时看同目录是否只有 xindy 产物（.xdy）而没有 .idx
-    # 注意：Path.glob() 返回生成器，布尔值恒为 True；必须用 any() 判断是否真的存在。
+    # 头部无特征时，只有“有 .xdy 且没有本次 .idx”才回退 xindy；
+    # 如果 .idx 还在，同目录的 .xdy 可能只是上一轮残留。
     parent = Path(path).parent
-    if any(parent.glob("*.xdy")):
+    if any(parent.glob("*.xdy")) and not any(parent.glob("*.idx")):
         return "xindy"
     return "makeindex"
+
+
+def _append_captured_steps(steps: list[str], captured_outputs: dict[str, str] | None) -> list[str]:
+    """把 ``captured_outputs`` 中尚未出现的 step 追加到已规划步骤。
+
+    默认规划只看得见磁盘产物；调用方直接传入 ``biber``/``mylatex`` 等
+    captured 文本时，如果没有显式 ``steps``，这些 key 不能被静默忽略。
+    保持 dict 插入顺序，并对已有 step 去重。
+    """
+    planned = list(steps)
+    seen = set(planned)
+    for step_name in captured_outputs or {}:
+        if step_name not in seen:
+            planned.append(step_name)
+            seen.add(step_name)
+    return planned
 
 
 def plan_default_steps(jobname: str, auxdir: str | Path) -> list[str]:

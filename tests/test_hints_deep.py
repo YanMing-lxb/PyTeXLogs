@@ -1,13 +1,25 @@
 """PyTeXLogs 可执行建议（hints）的深度回归测试。"""
 
-from pytexlogs import LogEntry, LogLevel
+from io import StringIO
+
+from pytexlogs import LogEntry, LogLevel, ParsedLog
+from pytexlogs.display import print_summary
 from pytexlogs.hints import detect_missing_package, hint_for_entry, hint_for_text
 
 
-def test_unicode_character_suggests_xelatex_or_pack():
+def test_unicode_symbol_branch_keeps_command_mapping_not_engine() -> None:
+    """F7：符号分支命令只保留等价命令/映射，不再附带换引擎命令。"""
     hint = hint_for_text("! LaTeX Error: Unicode character α (U+03B1) not set up for use with LaTeX.")
     assert hint is not None
     assert hint.kind == "unicode"
+    assert any("ensuremath" in command for command in hint.commands)
+    assert any("newunicodechar" in command for command in hint.commands)
+    assert not any("xelatex" in c or "lualatex" in c for c in hint.commands)
+
+
+def test_unicode_cjk_branch_keeps_engine_switch_commands() -> None:
+    hint = hint_for_text("! LaTeX Error: Unicode character 中 (U+4E2D) not set up for use with LaTeX.")
+    assert hint is not None and hint.kind == "unicode"
     assert any("xelatex" in command for command in hint.commands)
 
 
@@ -37,10 +49,11 @@ def test_missing_bib_database_command_not_duplicated():
 
 
 def test_package_error_does_not_claim_missing_package():
+    # fontspec 找不到字体族走专项规则（missing_font_family），仍不得被判成“缺宏包”。
     hint = hint_for_text('Package fontspec Error: The font "Times New Roman" cannot be found.')
     assert hint is not None
-    assert hint.kind == "package_error"
-    assert hint.commands == ()
+    assert hint.rule_id == "fontspec_font_not_found"
+    assert hint.kind == "missing_font_family"
     assert detect_missing_package('Package fontspec Error: The font "X" cannot be found.') is None
 
 
@@ -72,10 +85,10 @@ def test_missing_bib_file_is_classified_as_bib():
 
 
 def test_hint_context_substitutes_real_jobname_and_root():
-    """提示里的 <jobname>/<主文件> 要能用条目自带的文件信息替换。"""
+    """提示里的 <jobname>/<主文件> 要能用条目自带的顶层文件信息替换。"""
     entry = LogEntry(
         level=LogLevel.ERROR,
-        file="chapters/main.tex",
+        file="main.tex",
         line=7,
         text="LaTeX Warning: Citation `Smith2020' undefined on input line 7.",
     )
@@ -86,7 +99,7 @@ def test_hint_context_substitutes_real_jobname_and_root():
 
     ref_entry = LogEntry(
         level=LogLevel.WARNING,
-        file="chapters/main.tex",
+        file="main.tex",
         line=9,
         text="LaTeX Warning: Reference `sec:intro' undefined on input line 9.",
     )
@@ -94,13 +107,67 @@ def test_hint_context_substitutes_real_jobname_and_root():
     assert ref_hint is not None and any("main.tex" in c for c in ref_hint.commands)
 
     unicode_hint = hint_for_text(
-        "! LaTeX Error: Unicode character α (U+03B1) not set up for use with LaTeX.",
+        "! LaTeX Error: Unicode character 中 (U+4E2D) not set up for use with LaTeX.",
         jobname="paper",
     )
     assert unicode_hint is not None
     assert "xelatex paper.tex" in unicode_hint.commands
     assert "lualatex paper.tex" in unicode_hint.commands
     assert not any("pytexmk" in c for c in unicode_hint.commands)
+
+
+def test_subfile_entry_uses_explicit_project_jobname() -> None:
+    """子文件不能把自己的 stem 当成主 jobname。"""
+    entry = LogEntry(
+        level=LogLevel.WARNING,
+        file="chapters/intro.tex",
+        line=3,
+        text="LaTeX Warning: Citation `Smith2020' undefined on input line 3.",
+    )
+    hint = hint_for_entry(entry, jobname="main", root_file="main.tex")
+    assert hint is not None
+    assert hint.commands == ("biber main", "bibtex main")
+
+    ref_entry = LogEntry(
+        level=LogLevel.WARNING,
+        file="chapters/intro.tex",
+        line=4,
+        text="LaTeX Warning: Reference `sec:x' undefined on input line 4.",
+    )
+    ref_hint = hint_for_entry(ref_entry, jobname="main")
+    assert ref_hint is not None
+    # L1：重编译命令不写死 xelatex，保留中性 `<引擎>` 占位，主文件替换为 main.tex。
+    assert any("main.tex" in command and "<引擎>" in command for command in ref_hint.commands)
+
+
+def test_print_summary_passes_project_jobname_and_tool_scope() -> None:
+    entry = LogEntry(
+        level=LogLevel.WARNING,
+        file="chapters/intro.tex",
+        line=3,
+        text="LaTeX Warning: Citation `Smith2020' undefined on input line 3.",
+    )
+    parsed = ParsedLog(entries=[entry], tool_name="latex")
+    summary = print_summary(
+        [parsed],
+        use_logger=False,
+        show_hints=True,
+        jobname="main",
+        root_file="main.tex",
+        stream=StringIO(),
+    )
+    assert "biber main" in summary
+    assert "biber intro" not in summary
+
+
+def test_legacy_hint_table_is_scoped_by_tool() -> None:
+    latex_text = "Package foo Warning: WARN - check this"
+    biber_text = "WARN - I didn't find a database entry for 'x'"
+
+    assert hint_for_text(latex_text, tool_name="latex") is None
+    biber_hint = hint_for_text(biber_text, tool_name="biber")
+    assert biber_hint is not None
+    assert biber_hint.kind == "log_hint"
 
 
 def test_utf8_hint_does_not_depend_on_pytexmk():

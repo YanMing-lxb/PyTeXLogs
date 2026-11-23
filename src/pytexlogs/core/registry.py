@@ -7,6 +7,7 @@ import importlib.metadata
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 from typing import Literal
 
@@ -23,6 +24,42 @@ from ..parsers.xindy import XindyParser
 from .models import BaseLogParser
 
 logger = logging.getLogger(__name__)
+
+
+def _discover_first(
+    jobname: str,
+    auxdir: str | Path,
+    *,
+    suffix: str,
+) -> Path | None:
+    """优先找 ``jobname+suffix``，其次按文件名排序取首个同后缀文件。
+
+    Asymptote / Minted 的产物不一定与主 jobname 同名（如 ``plot.asy``），
+    规划阶段用 glob 判断存在，发现阶段必须用同一规则，否则会静默跳过。
+    """
+    aux = Path(auxdir)
+    preferred = aux / f"{jobname}{suffix}"
+    if preferred.is_file():
+        return preferred
+    try:
+        candidates = sorted(p for p in aux.glob(f"*{suffix}") if p.is_file())
+    except OSError:
+        return None
+    return candidates[0] if candidates else None
+
+
+def _discover_biber(jobname: str, auxdir: str | Path) -> Path | None:
+    """Biber 步骤优先找 ``.blg``；没有日志时退回 ``.bcf`` 统计输入。
+
+    ``.bcf`` 是 biber 的 XML 控制文件，不是日志；只作为显式 discover
+    的兜底路径，不再注册成通用 ``log_suffixes``。
+    """
+    aux = Path(auxdir)
+    for suffix in (".blg", ".bcf"):
+        candidate = aux / f"{jobname}{suffix}"
+        if candidate.is_file():
+            return candidate
+    return None
 
 
 @dataclass(slots=True)
@@ -119,10 +156,13 @@ class LogParserRegistry:
             ),
             LogParserSpec(
                 step_names=["biber"],
-                log_suffixes=[".blg", ".bcf"],
+                # ``.bcf`` 不作为通用日志后缀注册；Biber 解析 .blg，只有缺 .blg
+                # 时才通过 discover_hook 读取 .bcf 做 citekey 统计。
+                log_suffixes=[".blg"],
                 category="bibliography",
                 importance="high",
                 parser_cls=BiberParser,
+                discover_hook=_discover_biber,
             ),
             LogParserSpec(
                 step_names=["makeindex", "upmendex", "mendex"],
@@ -133,7 +173,7 @@ class LogParserRegistry:
             ),
             LogParserSpec(
                 step_names=["xindy", "texindy"],
-                log_suffixes=[".glg", ".alg", ".slg", ".ilg"],
+                log_suffixes=[".glg", ".alg", ".slg", ".ilg", ".xlg"],
                 category="index",
                 importance="medium",
                 parser_cls=XindyParser,
@@ -149,29 +189,31 @@ class LogParserRegistry:
                 step_names=["nomencl"],
                 log_suffixes=[".nlg"],
                 category="glossary",
-                importance="medium",
+                importance="low",
                 parser_cls=NomenclParser,
             ),
             LogParserSpec(
                 step_names=["pythontex"],
                 log_suffixes=[".pytxcode"],
                 category="code",
-                importance="low",
+                importance="high",
                 parser_cls=PythontexParser,
             ),
             LogParserSpec(
                 step_names=["asy", "asymptote"],
-                log_suffixes=[".asy", ".log"],
-                category="external",
-                importance="low",
+                log_suffixes=[".asy"],
+                category="graphics",
+                importance="medium",
                 parser_cls=AsymptoteParser,
+                discover_hook=partial(_discover_first, suffix=".asy"),
             ),
             LogParserSpec(
                 step_names=["minted"],
                 log_suffixes=[".pygmented"],
                 category="code",
-                importance="low",
+                importance="medium",
                 parser_cls=MintedParser,
+                discover_hook=partial(_discover_first, suffix=".pygmented"),
             ),
         ]
         for spec in specs:
@@ -198,14 +240,15 @@ class LogParserRegistry:
         step_name: str,
         parser_cls: type[BaseLogParser],
         log_suffixes: list[str] | None = None,
-        category: str = "custom",
-        importance: Literal["high", "medium", "low"] = "low",
+        category: str | None = None,
+        importance: Literal["high", "medium", "low"] | None = None,
     ) -> None:
+        """注册一个外部解析器；未显式给元数据时沿用 parser 类属性。"""
         spec = LogParserSpec(
             step_names=[step_name],
             log_suffixes=log_suffixes or [],
-            category=category,
-            importance=importance,
+            category=category or getattr(parser_cls, "category", "custom"),
+            importance=importance or getattr(parser_cls, "importance", "low"),
             parser_cls=parser_cls,
         )
         self.register_spec(spec)
@@ -215,21 +258,6 @@ class LogParserRegistry:
 
     def lookup_by_suffix(self, suffix: str) -> list[LogParserSpec]:
         return list(self._suffix_to_specs.get(suffix, []))
-
-    def iter_specs(self) -> tuple[LogParserSpec, ...]:
-        """返回去重后的全部 spec（按注册顺序）。
-
-        ``easy.py`` 等调用方据此推导"后缀 → 解析器"，不再自建第二份映射表。
-        """
-        seen: set[int] = set()
-        result: list[LogParserSpec] = []
-        for specs in self._suffix_to_specs.values():
-            for spec in specs:
-                if id(spec) in seen:
-                    continue
-                seen.add(id(spec))
-                result.append(spec)
-        return tuple(result)
 
     def all_suffixes(self) -> tuple[str, ...]:
         """返回全部已注册日志后缀，按长度倒序（便于最长后缀优先匹配）。"""

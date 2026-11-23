@@ -1,3 +1,4 @@
+import re
 import shutil
 import subprocess
 import sys
@@ -39,20 +40,18 @@ if _RICH_AVAILABLE:
     })
     console = Console(theme=custom_theme)
 else:
+    _MARKUP_STRIP_RE = re.compile(r"\[/?[^\]]+\]")
+
     class _FallbackConsole:
         """Fallback console：当用户环境没装 rich 时也能正常输出 make 目标结果。"""
 
         def print(self, *objects: Any, **kwargs: Any) -> None:  # noqa: ANN001,D401
             # 去掉 rich markup 标签 [xxx]、[/xxx] 后再 print
-            import re as _re
-            def _strip(txt: object) -> str:
-                pat = _re.compile(r"\[/?[^\]]+\]")
-                return pat.sub("", str(txt))
             sep = kwargs.pop("sep", " ")
             end = kwargs.pop("end", "\n")
             style = kwargs.pop("style", None)  # noqa: F841 - 未使用，保持签名兼容
             _ = kwargs
-            cleaned = [_strip(o) for o in objects]
+            cleaned = [_MARKUP_STRIP_RE.sub("", str(o)) for o in objects]
             print(*cleaned, sep=sep, end=end)
 
         def status(self, *args: Any, **kwargs: Any):  # noqa: ANN001,D401

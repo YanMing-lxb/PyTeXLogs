@@ -6,14 +6,13 @@ from typing import Any
 from ..core.models import BaseLogParser, LogEntry, LogLevel, ParsedLog
 
 pythontex_warning_re = re.compile(r"Warning\s*\(pythontex\):\s*(.+)")
-pythontex_code_blocks_re = re.compile(
-    r"PythonTeX:\s*processed\s+(\d+)\s+code blocks"
-)
+pythontex_code_blocks_re = re.compile(r"PythonTeX:\s*processed\s+(\d+)\s+code blocks")
 pythontex_traceback_error_re = re.compile(r"Traceback[\s\S]*?(\w+Error):\s*(.+)")
 
 
 class PythontexParser(BaseLogParser):
     """PythonTeX 代码执行解析器：解析 .pytxcode 相关日志。"""
+
     def __init__(self, root_file: str | None = None) -> None:
         """初始化 PythontexParser：调用父类并设置 pythontex 默认工具元数据。"""
         super().__init__(root_file)

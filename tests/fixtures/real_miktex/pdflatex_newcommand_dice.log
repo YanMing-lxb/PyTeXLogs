@@ -1,0 +1,147 @@
+This is pdfTeX, Version 3.141592653-2.6-1.40.29 (MiKTeX 26.5 Portable) (preloaded format=pdflatex 2026.11.22)  22 NOV 2026 09:40
+entering extended mode
+ restricted \write18 enabled.
+ %&-line parsing enabled.
+**./main.tex
+(main.tex
+LaTeX2e <2026-11-01>
+L3 programming layer <2026-09-09>
+
+(C:\Applications\Scoop\apps\miktex\current\texmfs\install\tex/latex/base\articl
+e.cls
+Document Class: article 2026-06-04 v1.4n Standard LaTeX document class
+
+(C:\Applications\Scoop\apps\miktex\current\texmfs\install\tex/latex/base\size10
+.clo
+File: size10.clo 2026-06-04 v1.4n Standard LaTeX file (size option)
+)
+\c@part=\count276
+\c@section=\count277
+\c@subsection=\count278
+\c@subsubsection=\count279
+\c@paragraph=\count280
+\c@subparagraph=\count281
+\c@figure=\count282
+\c@table=\count283
+\abovecaptionskip=\skip49
+\belowcaptionskip=\skip50
+\bibindent=\dimen150
+)
+
+! LaTeX Error: Missing \begin{document}.
+
+See the LaTeX manual or LaTeX Companion for explanation.
+Type  H <return>  for immediate help.
+ ...                                              
+                                                  
+l.3 \begin
+          {document}
+You're in trouble here.  Try typing  <return>  to proceed.
+If that doesn't work, type  X <return>  to quit.
+
+! Missing number, treated as zero.
+<to be read again> 
+                   c
+l.3 \begin
+          {document}
+A number should have been here; I inserted `0'.
+(If you can't figure out why I needed to see a number,
+look up `weird error' in the index to The TeXbook.)
+
+! Missing = inserted for \ifnum.
+<to be read again> 
+                   c
+l.3 \begin
+          {document}
+I was expecting to see `<', `=', or `>'. Didn't.
+
+! Missing number, treated as zero.
+<to be read again> 
+                   c
+l.3 \begin
+          {document}
+A number should have been here; I inserted `0'.
+(If you can't figure out why I needed to see a number,
+look up `weird error' in the index to The TeXbook.)
+
+! Missing number, treated as zero.
+<to be read again> 
+                   \l@ngrel@x 
+l.3 \begin
+          {document}
+A number should have been here; I inserted `0'.
+(If you can't figure out why I needed to see a number,
+look up `weird error' in the index to The TeXbook.)
+
+! Illegal unit of measure (pt inserted).
+<to be read again> 
+                   \l@ngrel@x 
+l.3 \begin
+          {document}
+Dimensions can be in units of em, ex, in, pt, pc,
+cm, mm, dd, cc, nd, nc, bp, or sp; but yours is a new one!
+I'll assume that you meant to say pt, for printer's points.
+To recover gracefully from this error, it's best to
+delete the erroneous units; e.g., type `2' to delete
+two letters. (See Chapter 27 of The TeXbook.)
+
+! Missing control sequence inserted.
+<inserted text> 
+                \inaccessible 
+l.3 \begin
+          {document}
+Please don't say `\def cs{...}', say `\def\cs{...}'.
+I've inserted an inaccessible control sequence so that your
+definition will be completed without mixing me up too badly.
+You can recover graciously from this error, if you're
+careful; see exercise 27.2 in The TeXbook.
+
+! You already have nine parameters.
+\reserved@a ... \def \expandafter d\reserved@b #10
+                                                  c{
+l.3 \begin
+          {document}
+I'm going to ignore the # sign you just used,
+as well as the token that followed it.
+
+! Argument of \begin has an extra }.
+<inserted text> 
+                \par 
+l.3 \begin
+          {document}
+I've run across a `}' that doesn't seem to match anything.
+For example, `\def\a#1{...}' and `\a}' would produce
+this error. If you simply proceed now, the `\par' that
+I've just inserted will cause me to report a runaway
+argument that might be the root of the problem. But if
+your `}' was spurious, just type `2' and it will go away.
+
+Runaway argument?
+! Paragraph ended before \begin was complete.
+<to be read again> 
+                   \par 
+l.3 \begin
+          {document}
+I suspect you've forgotten a `}', causing me to apply this
+control sequence to too much text. How can we recover?
+My plan is to forget the whole thing and hope for the best.
+
+
+! LaTeX Error: Missing \begin{document}.
+
+See the LaTeX manual or LaTeX Companion for explanation.
+Type  H <return>  for immediate help.
+ ...                                              
+                                                  
+l.3 \begin{d
+            ocument}
+You're in trouble here.  Try typing  <return>  to proceed.
+If that doesn't work, type  X <return>  to quit.
+
+[1
+
+{C:/Applications/Scoop/apps/miktex/current/texmfs/data/fonts/map/pdftex/pdftex.
+map}
+!pdfTeX error: pdflatex.exe (file C:/Applications/Scoop/apps/miktex/current/tex
+mfs/data/fonts/map/pdftex/pdftex.map): fflush() failed (Invalid argument)
+ ==> Fatal error occurred, no output PDF file produced!

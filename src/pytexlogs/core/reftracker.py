@@ -69,36 +69,46 @@ class RefChangeTracker:
 
     def detect_mode(self) -> Literal["bibtex", "biber", "unknown"]:
         """检测当前参考文献模式：bibtex/biber/unknown。"""
-        bcf_path = self.auxdir / f"{self.jobname}.bcf"
-        if bcf_path.exists():
-            return "biber"
-
         aux_path = self.auxdir / f"{self.jobname}.aux"
         if aux_path.exists():
-            # 逐行流式扫描：大 .aux（>10 MB）不必整份读入内存，
-            # 命中任一引用标记即返回。
+            # 先看 .aux 的实际内容：避免 BibTeX 构建目录里残留旧 .bcf 时被误判为
+            # Biber。biblatex 的 aux 标记是 \abx@aux@cite，传统 BibTeX 是
+            # \citation / \bibdata / \bibcite。
             try:
                 with aux_path.open(encoding="utf-8", errors="ignore") as handle:
                     for line in handle:
+                        if "\\abx@aux@cite" in line or "\\abx@aux@defaultrefcontext" in line:
+                            return "biber"
                         if "\\bibdata" in line or "\\citation" in line or "\\bibcite" in line:
                             return "bibtex"
             except OSError as _e:
                 logger.debug("读取 aux 文件失败，降级为 unknown 模式: %s", _e)
 
+        bcf_path = self.auxdir / f"{self.jobname}.bcf"
+        if bcf_path.exists():
+            return "biber"
+
         return "unknown"
 
-    def extract_current(self) -> list[str]:
-        """根据检测到的模式提取当前运行的引用键列表（不去重，保留重复用于计数）。"""
-        mode = self.detect_mode()
+    def extract_current(self, mode: Literal["bibtex", "biber", "unknown"] | None = None) -> list[str]:
+        """根据检测到的模式提取当前运行的引用键列表（不去重，保留重复用于计数）。
+
+        ``mode`` 可由调用方预先算好传入，避免同一轮流水线里重复扫描 .aux/.bcf。
+        """
+        if mode is None:
+            mode = self.detect_mode()
         if mode == "biber":
             return self.extract_from_bcf(self.auxdir / f"{self.jobname}.bcf")
         elif mode == "bibtex":
             return self.extract_from_aux(self.auxdir / f"{self.jobname}.aux")
         return []
 
-    def extract_current_with_counts(self) -> tuple[list[str], dict[str, int]]:
+    def extract_current_with_counts(
+        self,
+        mode: Literal["bibtex", "biber", "unknown"] | None = None,
+    ) -> tuple[list[str], dict[str, int]]:
         """提取当前引用键列表（不去重）并统计每个 key 的出现次数。"""
-        raw_keys = self.extract_current()
+        raw_keys = self.extract_current(mode)
         counts = dict(Counter(raw_keys))
         return raw_keys, counts
 
@@ -106,32 +116,38 @@ class RefChangeTracker:
         """提取当前引用键的计数统计（不去重统计）。"""
         return self.extract_current_with_counts()[1]
 
+    def _load_refs_state(self) -> tuple[list[str], dict[str, int]]:
+        """一次读取共享状态，返回 (keys, key_counts)，避免 save 时重复解析 JSON。"""
+        refs = self._store.get_refs()
+        keys = refs.get("keys", [])
+        key_list = [str(k) for k in keys] if isinstance(keys, list) else []
+        kc = refs.get("key_counts", {})
+        counts = {str(k): int(v) for k, v in kc.items()} if isinstance(kc, dict) else {}
+        return key_list, counts
+
     def load_cache(self) -> list[str]:
         """从共享状态文件加载上次保存的引用键列表。"""
-        keys = self._store.get_refs().get("keys", [])
-        return [str(k) for k in keys] if isinstance(keys, list) else []
+        return self._load_refs_state()[0]
 
     def load_cache_counts(self) -> dict[str, int]:
         """从共享状态文件加载上次保存的 key_counts 统计。"""
-        kc = self._store.get_refs().get("key_counts", {})
-        if isinstance(kc, dict):
-            return {str(k): int(v) for k, v in kc.items()}
-        return {}
+        return self._load_refs_state()[1]
 
-    def save_cache(
-        self, keys: Iterable[str], key_counts: dict[str, int] | None = None
-    ) -> None:
+    def save_cache(self, keys: Iterable[str], key_counts: dict[str, int] | None = None) -> None:
         """将引用键写入共享状态文件的 ``pytexlogs.refs`` 命名空间。
 
         只更新本命名空间，PyTeXMK 写在 ``pytexmk.build`` 下的构建状态原样保留。
+        键集合与计数都没变化时直接返回，避免每次构建都 fsync 一次状态文件。
         """
+        new_keys = sorted(set(keys))
         if key_counts is None:
-            key_counts = dict(Counter(keys))
-        self._store.update_refs(keys=sorted(set(keys)), key_counts=key_counts)
+            key_counts = dict(Counter(new_keys))
+        cached_keys, cached_counts = self._load_refs_state()
+        if cached_keys == new_keys and cached_counts == key_counts:
+            return
+        self._store.update_refs(keys=new_keys, key_counts=key_counts)
 
-    def diff(
-        self, now_keys: Iterable[str], old_keys: Iterable[str]
-    ) -> dict[str, set[str] | bool]:
+    def diff(self, now_keys: Iterable[str], old_keys: Iterable[str]) -> dict[str, set[str] | bool]:
         """计算新旧引用键集合差异：新增/移除/未变。"""
         now_set = set(now_keys)
         old_set = set(old_keys)
@@ -152,13 +168,9 @@ class RefChangeTracker:
             return self._translate_fn("参考文献: {} 篇引用, 无变动").format(total_unique)
 
         if old_was_empty and removed == 0:
-            return self._translate_fn("参考文献: {} 篇引用, 首次运行, 新增 {}").format(
-                total_unique, added
-            )
+            return self._translate_fn("参考文献: {} 篇引用, 首次运行, 新增 {}").format(total_unique, added)
 
-        return self._translate_fn("参考文献: {} 篇引用, 新增 {}, 移除 {}").format(
-            total_unique, added, removed
-        )
+        return self._translate_fn("参考文献: {} 篇引用, 新增 {}, 移除 {}").format(total_unique, added, removed)
 
     def summarize_diff(self, old_keys: Iterable[str], now_keys: Iterable[str]) -> str:
         """便捷方法：对比新旧引用键集合并返回格式化的差异摘要字符串。"""

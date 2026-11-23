@@ -8,12 +8,11 @@ from ..core.models import BaseLogParser, LogEntry, LogLevel, ParsedLog
 minted_warning_re = re.compile(r"Package minted Warning:\s*(.+)")
 minted_no_lexer_re = re.compile(r"Error:\s*no lexer for name '([^']+)'")
 minted_highlight_re = re.compile(r"Processing\s+.*code block|Highlighting\s+.*\.\.\.")
-minted_package_warning_re = re.compile(r"Package minted Warning:\s*Undefined control sequence")
-minted_empty_content_re = re.compile(r"Package minted Warning:\s*Empty content")
 
 
 class MintedParser(BaseLogParser):
     """Minted 代码高亮解析器：解析 Pygments 相关日志。"""
+
     def __init__(self, root_file: str | None = None) -> None:
         """初始化 MintedParser：调用父类并设置 minted 默认工具元数据。"""
         super().__init__(root_file)
@@ -65,10 +64,7 @@ class MintedParser(BaseLogParser):
         no_lexer_match = minted_no_lexer_re.search(line)
         if no_lexer_match:
             lexer_name = no_lexer_match.group(1)
-            text = (
-                f"no lexer for name '{lexer_name}': "
-                "请检查 Pygments 是否安装或该语言名称是否正确"
-            )
+            text = f"no lexer for name '{lexer_name}': 请检查 Pygments 是否安装或该语言名称是否正确"
             self.build_log.append(
                 LogEntry(
                     level=LogLevel.ERROR,

@@ -52,6 +52,7 @@ MIKTEX_BLG = (
 
 # ---------------------------------------------------------------- makeindex
 
+
 def test_makeindex_texlive_format():
     """TeX Live 的 ## 前缀统计必须继续工作（不可回归）。"""
     r = MakeindexParser(root_file="main").parse(TEXLIVE_ILG, root_file="main")
@@ -83,10 +84,7 @@ def test_makeindex_miktex_style_error_two_line_pair():
 
 def test_makeindex_miktex_style_error_without_continuation():
     """标题后紧跟下一个标题（无续行）时不能吞掉后一条。"""
-    text = (
-        "** Input style error (file = a.ist, line = 10):\n"
-        "** Input style error (file = a.ist, line = 11):\n"
-    )
+    text = "** Input style error (file = a.ist, line = 10):\n** Input style error (file = a.ist, line = 11):\n"
     r = MakeindexParser(root_file="main").parse(text, root_file="main")
     assert r.stats["style_errors_count"] == 2
     assert [e.line for e in r.errors] == [10, 11]
@@ -94,11 +92,13 @@ def test_makeindex_miktex_style_error_without_continuation():
 
 # ------------------------------------------------------------------ nomencl
 
+
 def test_nomencl_miktex_entries_and_style_errors():
     r = NomenclParser(root_file="main").parse(MIKTEX_ILG, root_file="main")
     assert r.stats["nomenclature_entries"] == 95
     assert r.stats["style_errors_count"] == 3
     assert len(r.entries) == 3
+
 
 def test_nomencl_texlive_format():
     r = NomenclParser(root_file="main").parse(TEXLIVE_ILG, root_file="main")
@@ -106,6 +106,7 @@ def test_nomencl_texlive_format():
 
 
 # --------------------------------------------------------------- glossaries
+
 
 def test_glossaries_miktex_style_errors():
     text = MIKTEX_ILG.replace("main.nlo", "main.glo").replace("main.nls", "main.gls")
@@ -125,11 +126,16 @@ def test_glossaries_miktex_entries_stat():
 
 # ------------------------------------------------------------------ bibtex
 
+
 def test_bibtex_texlive_single_line_stat():
-    """TeX Live 单行 ``39 entries, 2 warnings``：数字前无空白也算。"""
+    """TeX Live 单行 ``39 entries, 2 warnings``：数字前无空白也算。
+
+    ``warnings_count`` 口径：与去重后的 WARNING 条目数一致；这份日志没有真实
+    警告条目，因此为 0（日志正文声明的 ``2 warnings`` 不再回填到该计数）。
+    """
     r = BibtexParser(root_file="main").parse(TEXLIVE_BLG, root_file="main")
     assert r.stats["entries_processed"] == 39
-    assert r.stats["warnings_count"] == 2
+    assert r.stats["warnings_count"] == 0
 
 
 def test_bibtex_miktex_used_entries_stat():
