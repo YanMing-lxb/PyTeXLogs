@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PyTeXLogs 0.6.3 摘要版式预览</title>
+<style>
+:root { --bg:#0b0e14; --panel:#12161f; --panel-2:#0e1219; --line:#232936; --text:#c9d1d9; --muted:#8b949e; --accent:#d79921; --mono:"Cascadia Mono","Sarasa Mono SC","JetBrains Mono",Consolas,"Microsoft YaHei UI",monospace; }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--text); font:15px/1.7 -apple-system,"Segoe UI","Microsoft YaHei UI",sans-serif; }
+.wrap { max-width:1120px; margin:0 auto; padding:48px 28px 72px; }
+.eyebrow { color:var(--accent); font-size:12px; letter-spacing:.18em; text-transform:uppercase; }
+h1 { font-size:34px; line-height:1.25; margin:10px 0 12px; font-weight:650; }
+.lede { color:var(--muted); max-width:820px; }
+code { font-family:var(--mono); font-size:.92em; color:#d7dee8; background:#171c26; border:1px solid var(--line); border-radius:3px; padding:0 4px; }
+.meta { display:flex; gap:18px; flex-wrap:wrap; margin:22px 0 30px; color:var(--muted); font-size:13px; }
+a { color:#7aa2f7; text-decoration:none; } a:hover { text-decoration:underline; }
+.meta code { color:var(--text); }
+section { margin-top:52px; }
+.sec-head { display:flex; align-items:baseline; gap:12px; border-bottom:1px solid var(--line); padding-bottom:10px; margin-bottom:8px; }
+.sec-num { color:var(--accent); font-family:var(--mono); font-size:13px; }
+.sec-head h2 { font-size:22px; margin:0; font-weight:620; }
+.sec-intro { color:var(--muted); margin:6px 0 22px; max-width:860px; }
+.case { margin:26px 0 34px; }
+.case-head { display:flex; gap:10px; align-items:baseline; flex-wrap:wrap; }
+.case-head .num { color:var(--accent); font-family:var(--mono); font-size:12px; }
+.case h3 { font-size:16.5px; margin:0; font-weight:600; }
+.case-desc { color:var(--muted); font-size:13.5px; margin:5px 0 12px; }
+.term { border:1px solid var(--line); border-radius:10px; overflow:hidden; background:var(--panel-2); box-shadow:0 14px 34px rgba(0,0,0,.35); }
+.bar { display:flex; align-items:center; gap:8px; padding:9px 12px; background:var(--panel); border-bottom:1px solid var(--line); }
+.bar .lights { display:flex; gap:6px; }
+.bar .lights i { width:10px; height:10px; border-radius:50%; display:block; background:#2b3444; }
+.bar .lights i:first-child { background:#3a2a30; }
+.cmd { font-family:var(--mono); font-size:12.5px; color:#9da7b3; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; }
+.badge { font-family:var(--mono); font-size:10.5px; letter-spacing:.08em; color:var(--muted); border:1px solid var(--line); border-radius:4px; padding:2px 6px; }
+pre.body { margin:0; padding:16px 18px; font-family:var(--mono); font-size:13px; line-height:1.62; color:#c8d0da; white-space:pre; overflow-x:auto; tab-size:4; }
+.b { font-weight:700; } .d { opacity:.52; } .u { text-decoration:underline; }
+.two { display:grid; grid-template-columns:1fr 1fr; gap:22px; }
+@media (max-width:880px) { .two { grid-template-columns:1fr; } }
+.card { border:1px solid var(--line); border-radius:10px; padding:18px 20px; background:var(--panel); }
+.card h3 { margin:0 0 10px; font-size:15px; }
+.card p { margin:0; color:var(--muted); font-size:13.5px; }
+</style></head><body><div class="wrap">
+<div class="eyebrow">PyTeXLogs 0.6.3 · terminal summary</div>
+<h1>摘要版式预览：固定宽度可配置 + 悬挂缩进</h1>
+<p class="lede">默认仍为 74 列，但 <code>width</code> / <code>summary_width</code> / <code>--width</code> 可由调用方覆盖；折行后每行开头与首行文本起始列对齐。以下为 rich 真实渲染（深色主题）。</p>
+<div class="meta"><span>版本 <code>0.6.3</code></span><span>默认 <code>74</code> 列</span><span>最小 <code>40</code> 列</span><span>颜色：error / warning / info + dim</span><span><a href="terminal-output-gallery.html">对照 0.6.2 旧版</a></span></div>
+<section><div class="sec-head"><span class="sec-num">A</span><h2>宽度与对齐</h2></div><p class="sec-intro">同一组条目在 74 / 60 / 40 列下的真实输出。注意条目续行、hint 续行与命令行的缩进。</p>
+
+<article class="case">
+  <div class="case-head"><span class="num">01</span><h3>默认 74 列 · 中英混排摘要</h3></div>
+  <p class="case-desc">默认版式保持 74 列；等级标题沿用旧版 `====` 居中横幅，分类标题沿用 `+--` 框线，条目正文悬挂缩进。</p>
+  <div class="term"><div class="bar"><span class="lights"><i></i><i></i><i></i></span><span class="cmd">print_summary(..., width=74)  /  run_pipeline(..., summary_width=74)</span><span class="badge">rich / truecolor</span></div>
+  <pre class="body"><span class="b" style="color:#e06c75">============================== 错误汇总 · 1 ==============================</span>
+<span class="b" style="color:#d79921">+--</span> <span class="b">[一般编译]</span> <span class="d">· 1</span> <span class="b" style="color:#d79921">-------------------------------------------------------</span>
+    <span class="b" style="color:#e06c75">[E]</span> method.tex:42 <span class="b" style="color:#56b6c2">--&gt;</span> Undefined control sequence \foobar in a long
+                          paragraph that must wrap onto another line.
+        <span style="color:#56b6c2">↳</span> 未定义命令
+          `\foobar`：检查拼写/大小写；若是宏包提供的命令，确认对应
+          \usepackage 已加载。
+          <span class="b">$</span> grep -R &quot;\\foobar&quot; *.tex
+          <span class="b">$</span> tlmgr search --global --file foobar.sty
+<span class="b" style="color:#e5c07b">============================== 警告汇总 · 1 ==============================</span>
+<span class="b" style="color:#d79921">+--</span> <span class="b">[一般编译]</span> <span class="d">· 1</span> <span class="b" style="color:#d79921">-------------------------------------------------------</span>
+    <span class="b" style="color:#e5c07b">[W]</span> main.tex:15 <span class="b" style="color:#56b6c2">--&gt;</span> LaTeX Warning: Reference `sec:intro&#x27; on page 1
+                        undefined on input line 15.
+        <span style="color:#56b6c2">↳</span> 交叉引用 `sec:intro` 未定义：确认 \label
+          拼写，并用当前引擎再编译一轮让 .aux 收敛。
+          <span class="b">$</span> latex main.tex # 用当前引擎再跑一轮
+<span class="b" style="color:#61afef">============================== 提示汇总 · 1 ==============================</span>
+<span class="b" style="color:#d79921">+--</span> <span class="b">[一般编译]</span> <span class="d">· 1</span> <span class="b" style="color:#d79921">-------------------------------------------------------</span>
+    <span class="b" style="color:#61afef">[I]</span> main.tex:2 <span class="b" style="color:#56b6c2">--&gt;</span> LaTeX Font Info: Checking defaults for
+                       OML/cmm/m/it.
+<span class="d">============================ 排版提示汇总 · 1 ============================</span>
+<span class="b" style="color:#d79921">+--</span> <span class="b">[一般编译]</span> <span class="d">· 1</span> <span class="b" style="color:#d79921">-------------------------------------------------------</span>
+    <span class="d">[T]</span> main.tex:9 <span class="b" style="color:#56b6c2">--&gt;</span> Overfull \hbox (12.0pt too wide) in paragraph at
+                       lines 9--10
+<span class="b" style="color:#98c379">[+]</span> <span class="b">[参考文献] 新增 2:</span>
+  <span style="color:#56b6c2">AnotherKey</span><span class="d">, </span><span style="color:#56b6c2">NewKey2026</span>
+<span class="b">  [参考文献] </span>共 12 篇，未变动 8 篇
+<span class="d">--------------------------------------------------------------------------</span>
+<span class="b">(*)</span> <span class="b">[参考文献] 引用 Top 5:</span>
+    (1) <span style="color:#56b6c2">KeyA                        </span>  <span class="b">  5</span> 次引用
+    (2) <span style="color:#56b6c2">KeyB                        </span>  <span class="b">  3</span> 次引用
+<span class="d">--------------------------------------------------------------------------</span>
+</pre></div>
+</article>
+<article class="case">
+  <div class="case-head"><span class="num">02</span><h3>60 列 · 窄终端</h3></div>
+  <p class="case-desc">宽度收紧后条目正文自动折行，续行与首行 `-->` 后的文本起始列对齐；路径过长时中间省略。</p>
+  <div class="term"><div class="bar"><span class="lights"><i></i><i></i><i></i></span><span class="cmd">pytexlogs check build/main.log --width 60</span><span class="badge">rich / truecolor</span></div>
+  <pre class="body"><span class="b" style="color:#e06c75">======================= 错误汇总 · 1 =======================</span>
+<span class="b" style="color:#d79921">+--</span> <span class="b">[一般编译]</span> <span class="d">· 1</span> <span class="b" style="color:#d79921">-----------------------------------------</span>
+    <span class="b" style="color:#e06c75">[E]</span> method.tex:42 <span class="b" style="color:#56b6c2">--&gt;</span> Undefined control sequence
+                          \foobar in a long paragraph that
+                          must wrap onto another line.
+        <span style="color:#56b6c2">↳</span> 未定义命令
+          `\foobar`：检查拼写/大小写；若是宏包提供的命令，确
+          认对应 \usepackage 已加载。
+          <span class="b">$</span> grep -R &quot;\\foobar&quot; *.tex
+          <span class="b">$</span> tlmgr search --global --file foobar.sty
+<span class="b" style="color:#e5c07b">======================= 警告汇总 · 1 =======================</span>
+<span class="b" style="color:#d79921">+--</span> <span class="b">[一般编译]</span> <span class="d">· 1</span> <span class="b" style="color:#d79921">-----------------------------------------</span>
+    <span class="b" style="color:#e5c07b">[W]</span> main.tex:15 <span class="b" style="color:#56b6c2">--&gt;</span> LaTeX Warning: Reference
+                        `sec:intro&#x27; on page 1 undefined on
+                        input line 15.
+        <span style="color:#56b6c2">↳</span> 交叉引用 `sec:intro` 未定义：确认 \label
+          拼写，并用当前引擎再编译一轮让 .aux 收敛。
+          <span class="b">$</span> latex main.tex # 用当前引擎再跑一轮
+<span class="b" style="color:#61afef">======================= 提示汇总 · 1 =======================</span>
+<span class="b" style="color:#d79921">+--</span> <span class="b">[一般编译]</span> <span class="d">· 1</span> <span class="b" style="color:#d79921">-----------------------------------------</span>
+    <span class="b" style="color:#61afef">[I]</span> main.tex:2 <span class="b" style="color:#56b6c2">--&gt;</span> LaTeX Font Info: Checking defaults
+                       for OML/cmm/m/it.
+<span class="d">===================== 排版提示汇总 · 1 =====================</span>
+<span class="b" style="color:#d79921">+--</span> <span class="b">[一般编译]</span> <span class="d">· 1</span> <span class="b" style="color:#d79921">-----------------------------------------</span>
+    <span class="d">[T]</span> main.tex:9 <span class="b" style="color:#56b6c2">--&gt;</span> Overfull \hbox (12.0pt too wide) in
+                       paragraph at lines 9--10
+<span class="b" style="color:#98c379">[+]</span> <span class="b">[参考文献] 新增 2:</span>
+  <span style="color:#56b6c2">AnotherKey</span><span class="d">, </span><span style="color:#56b6c2">NewKey2026</span>
+<span class="b">  [参考文献] </span>共 12 篇，未变动 8 篇
+<span class="d">------------------------------------------------------------</span>
+<span class="b">(*)</span> <span class="b">[参考文献] 引用 Top 5:</span>
+    (1) <span style="color:#56b6c2">KeyA                        </span>  <span class="b">  5</span> 次引用
+    (2) <span style="color:#56b6c2">KeyB                        </span>  <span class="b">  3</span> 次引用
+<span class="d">------------------------------------------------------------</span>
+</pre></div>
+</article>
+<article class="case">
+  <div class="case-head"><span class="num">03</span><h3>40 列 · 最小宽度</h3></div>
+  <p class="case-desc">低于 40 列会自动收敛到 40；正文区仍保留至少 12 列，避免版式被压坏。</p>
+  <div class="term"><div class="bar"><span class="lights"><i></i><i></i><i></i></span><span class="cmd">pytexlogs check build/main.log --width 40</span><span class="badge">rich / truecolor</span></div>
+  <pre class="body"><span class="b" style="color:#e06c75">============= 错误汇总 · 1 =============</span>
+<span class="b" style="color:#d79921">+--</span> <span class="b">[一般编译]</span> <span class="d">· 1</span> <span class="b" style="color:#d79921">---------------------</span>
+    <span class="b" style="color:#e06c75">[E]</span> method.tex:42 <span class="b" style="color:#56b6c2">--&gt;</span> Undefined
+                          control
+                          sequence
+                          \foobar in a
+                          long
+                          paragraph
+                          that must
+                          wrap onto
+                          another line.
+        <span style="color:#56b6c2">↳</span> 未定义命令
+          `\foobar`：检查拼写/大小写；若
+          是宏包提供的命令，确认对应
+          \usepackage 已加载。
+          <span class="b">$</span> grep -R &quot;\\foobar&quot; *.tex
+          <span class="b">$</span> tlmgr search --global
+            --file foobar.sty
+<span class="b" style="color:#e5c07b">============= 警告汇总 · 1 =============</span>
+<span class="b" style="color:#d79921">+--</span> <span class="b">[一般编译]</span> <span class="d">· 1</span> <span class="b" style="color:#d79921">---------------------</span>
+    <span class="b" style="color:#e5c07b">[W]</span> main.tex:15 <span class="b" style="color:#56b6c2">--&gt;</span> LaTeX Warning:
+                        Reference
+                        `sec:intro&#x27; on
+                        page 1
+                        undefined on
+                        input line 15.
+        <span style="color:#56b6c2">↳</span> 交叉引用 `sec:intro`
+          未定义：确认 \label
+          拼写，并用当前引擎再编译一轮让
+           .aux 收敛。
+          <span class="b">$</span> latex main.tex #
+            用当前引擎再跑一轮
+<span class="b" style="color:#61afef">============= 提示汇总 · 1 =============</span>
+<span class="b" style="color:#d79921">+--</span> <span class="b">[一般编译]</span> <span class="d">· 1</span> <span class="b" style="color:#d79921">---------------------</span>
+    <span class="b" style="color:#61afef">[I]</span> main.tex:2 <span class="b" style="color:#56b6c2">--&gt;</span> LaTeX Font Info:
+                       Checking
+                       defaults for
+                       OML/cmm/m/it.
+<span class="d">=========== 排版提示汇总 · 1 ===========</span>
+<span class="b" style="color:#d79921">+--</span> <span class="b">[一般编译]</span> <span class="d">· 1</span> <span class="b" style="color:#d79921">---------------------</span>
+    <span class="d">[T]</span> main.tex:9 <span class="b" style="color:#56b6c2">--&gt;</span> Overfull \hbox
+                       (12.0pt too
+                       wide) in
+                       paragraph at
+                       lines 9--10
+<span class="b" style="color:#98c379">[+]</span> <span class="b">[参考文献] 新增 2:</span>
+  <span style="color:#56b6c2">AnotherKey</span><span class="d">, </span><span style="color:#56b6c2">NewKey2026</span>
+<span class="b">  [参考文献] </span>共 12 篇，未变动 8 篇
+<span class="d">----------------------------------------</span>
+<span class="b">(*)</span> <span class="b">[参考文献] 引用 Top 5:</span>
+    (1) <span style="color:#56b6c2">KeyA                </span>  <span class="b">  5</span> 次引用
+    (2) <span style="color:#56b6c2">KeyB                </span>  <span class="b">  3</span> 次引用
+<span class="d">----------------------------------------</span>
+</pre></div>
+</article>
+</section>
+<section><div class="sec-head"><span class="sec-num">B</span><h2>英文与参考文献</h2></div><p class="sec-intro">英文模式共用同一套版式；参考文献新增、总计与 Top 引用块不再出现逗号前后空格问题。</p>
+
+<article class="case">
+  <div class="case-head"><span class="num">04</span><h3>英文模式 · 参考文献块</h3></div>
+  <p class="case-desc">英文标题、类别标签、统计行与参考文献总计行保持同一套版式；`Total 12, Unchanged 8` 不再有逗号前后空格问题。</p>
+  <div class="term"><div class="bar"><span class="lights"><i></i><i></i><i></i></span><span class="cmd">pytexlogs check main.log --lang en --width 74</span><span class="badge">rich / truecolor</span></div>
+  <pre class="body"><span class="b" style="color:#e06c75">=========================== Error Summary · 1 ============================</span>
+<span class="b" style="color:#d79921">+--</span> <span class="b">[Compilation]</span> <span class="d">· 1</span> <span class="b" style="color:#d79921">----------------------------------------------------</span>
+    <span class="b" style="color:#e06c75">[E]</span> method.tex:42 <span class="b" style="color:#56b6c2">--&gt;</span> Undefined control sequence \foobar in a long
+                          paragraph that must wrap onto another line.
+        <span style="color:#56b6c2">↳</span> Undefined command `\foobar`: check spelling/case; if a package
+          provides it, confirm the matching \usepackage is loaded.
+          <span class="b">$</span> grep -R &quot;\\foobar&quot; *.tex
+          <span class="b">$</span> tlmgr search --global --file foobar.sty
+<span class="b" style="color:#e5c07b">========================== Warning Summary · 1 ===========================</span>
+<span class="b" style="color:#d79921">+--</span> <span class="b">[Compilation]</span> <span class="d">· 1</span> <span class="b" style="color:#d79921">----------------------------------------------------</span>
+    <span class="b" style="color:#e5c07b">[W]</span> main.tex:15 <span class="b" style="color:#56b6c2">--&gt;</span> LaTeX Warning: Reference `sec:intro&#x27; on page 1
+                        undefined on input line 15.
+        <span style="color:#56b6c2">↳</span> Cross-reference `sec:intro` is undefined: check \label spelling
+          and rerun with the current engine to converge .aux.
+          <span class="b">$</span> latex main.tex
+<span class="b" style="color:#61afef">============================ Info Summary · 1 ============================</span>
+<span class="b" style="color:#d79921">+--</span> <span class="b">[Compilation]</span> <span class="d">· 1</span> <span class="b" style="color:#d79921">----------------------------------------------------</span>
+    <span class="b" style="color:#61afef">[I]</span> main.tex:2 <span class="b" style="color:#56b6c2">--&gt;</span> LaTeX Font Info: Checking defaults for
+                       OML/cmm/m/it.
+<span class="d">======================== Typesetting Summary · 1 =========================</span>
+<span class="b" style="color:#d79921">+--</span> <span class="b">[Compilation]</span> <span class="d">· 1</span> <span class="b" style="color:#d79921">----------------------------------------------------</span>
+    <span class="d">[T]</span> main.tex:9 <span class="b" style="color:#56b6c2">--&gt;</span> Overfull \hbox (12.0pt too wide) in paragraph at
+                       lines 9--10
+<span class="b" style="color:#98c379">[+]</span> <span class="b">[Bibliography] Added 2:</span>
+  <span style="color:#56b6c2">AnotherKey</span><span class="d">, </span><span style="color:#56b6c2">NewKey2026</span>
+<span class="b">  [Bibliography] </span>Total 12, Unchanged 8
+<span class="d">--------------------------------------------------------------------------</span>
+<span class="b">(*)</span> <span class="b">[Bibliography] Top Cited 5:</span>
+    (1) <span style="color:#56b6c2">KeyA                        </span>  <span class="b">  5</span> citations
+    (2) <span style="color:#56b6c2">KeyB                        </span>  <span class="b">  3</span> citations
+<span class="d">--------------------------------------------------------------------------</span>
+</pre></div>
+</article>
+</section>
+<section><div class="sec-head"><span class="sec-num">C</span><h2>接入方式</h2></div>
+<div class="two">
+<div class="card"><h3>PyTeXMK / 库调用</h3><p><code>print_summary(..., width=console.width)</code><br><code>run_pipeline(..., summary_width=console.width)</code></p></div>
+<div class="card"><h3>CLI</h3><p><code>pytexlogs check main.log --width 60</code><br>宽度低于 40 自动收敛；文本流仍保持纯文本可复制。</p></div>
+</div>
+</section>
+</div></body></html>

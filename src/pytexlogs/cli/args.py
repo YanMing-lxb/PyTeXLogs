@@ -45,6 +45,7 @@ _OPTIONS_WITH_VALUE = frozenset(
         "--jobname",
         "--editor",
         "--max-entries",
+        "--width",
         "--baseline",
         "--completion",
     }
@@ -247,6 +248,12 @@ def _add_common_args(parser: argparse.ArgumentParser, *, suppress: bool) -> None
         type=int,
         default=(argparse.SUPPRESS if suppress else None),
         help="文本摘要每个分组最多展示 N 条（默认 10，0 表示不限制）",
+    )
+    parser.add_argument(
+        "--width",
+        type=int,
+        default=(argparse.SUPPRESS if suppress else None),
+        help="文本摘要版式宽度（默认 74；最小 40，供 PyTeXMK 按控制台宽度调整）",
     )
     parser.add_argument(
         "--no-hints",

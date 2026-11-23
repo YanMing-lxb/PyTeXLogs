@@ -18,15 +18,19 @@ from .formatter import (
     _LEVEL_DISPLAY,
     CATEGORY_LABEL,
     CATEGORY_ORDER,
-    SUMMARY_TOTAL_LEN,
+    ENTRY_INDENT,
     _display_path,
-    _format_entry,
+    _format_entry_lines,
+    _format_hint_lines,
     _format_ref_block,
-    _format_separator,
+    _format_title_rule,
     _format_top_cited,
     _group_by,
+    _markup_escape,
+    _measure,
     _strip_rich_markup,
     _t,
+    resolve_summary_width,
     set_summary_language,
 )
 
@@ -117,6 +121,7 @@ def print_summary(
     show_hints: bool = False,
     jobname: str | None = None,
     root_file: str | None = None,
+    width: int | None = None,
 ) -> str:
     """按类别/等级分组打印日志摘要并返回拼接字符串。
 
@@ -126,6 +131,8 @@ def print_summary(
         show_hints: 是否为 ERROR/WARNING 条目追加一行可执行建议（见 :mod:`pytexlogs.hints`）。
         jobname: 可选项目 jobname，用于把 hint 里的 ``biber <jobname>`` 替换正确。
         root_file: 可选主 ``.tex`` 路径；子文件条目不能自己充当项目根文件。
+        width: 版式宽度；``None`` 沿用 :data:`SUMMARY_TOTAL_LEN`（74）。PyTeXMK 等
+            调用方可按自身控制台宽度传入，小于 ``MIN_SUMMARY_WIDTH`` 时自动收敛。
     """
     prev_lang: str | None = None
     prev_tfn: Callable[[str], str] | None = None
@@ -139,7 +146,7 @@ def print_summary(
             _print_to_stream(stream, markup, plain)
 
     try:
-        _len = text_len_fn or len
+        layout_width = resolve_summary_width(width)
         display_cwd = str(Path.cwd())
         grouped = _group_by(parsed_logs)
         output_lines: list[str] = []
@@ -167,7 +174,7 @@ def print_summary(
                 if isinstance(console, _FallbackConsole):
                     console.print(plain)
                 else:
-                    console.print(markup)
+                    console.print(markup, width=layout_width)
 
         levels_to_show: list[str] = []
         if non_quiet:
@@ -181,18 +188,16 @@ def print_summary(
 
         for level in levels_to_show:
             categories_data = grouped[level]
-            has_entries = any(categories_data[cat] for cat in CATEGORY_ORDER)
-            if not has_entries:
+            total_entries = sum(len(categories_data[cat]) for cat in CATEGORY_ORDER)
+            if total_entries == 0:
                 continue
 
             level_meta = _LEVEL_DISPLAY[level]
             log_fn = _log_fn(level)
             level_title = _t(level_meta.title)
-            sep_markup = _format_separator(level_title, level_meta.sep_style, text_len_fn)
-            sep_plain = _strip_rich_markup(sep_markup)
-            # 日志分支直接用同一份纯文本分隔符（不再另拼一套 ANSI 字符串，
-            # 否则同一段标题在终端与日志里长度、颜色都不一致）
-            emit(sep_markup, sep_plain, log_fn)
+            title_plain = f"{level_title} · {total_entries}"
+            head_markup, head_plain = _format_title_rule(title_plain, layout_width, level_meta.title_style, text_len_fn)
+            emit(head_markup, head_plain, log_fn)
 
             for cat in CATEGORY_ORDER:
                 entries = categories_data[cat]
@@ -200,31 +205,29 @@ def print_summary(
                     continue
 
                 cat_label_text = _t(CATEGORY_LABEL.get(cat, cat))
-                label = f"[{cat_label_text}]"
-                prefix = "[bold #d79921]+--[/] [bold]"
-                suffix_part = "[/bold] [bold #d79921]"
-                plain_prefix_text = f"+-- {label} "
-                plain_prefix_len = _len(plain_prefix_text)
-                dashes_count = max(0, SUMMARY_TOTAL_LEN - plain_prefix_len)
-                dashes = "-" * dashes_count
-                cat_markup = f"{prefix}{label}{suffix_part}{dashes}[/]"
-                cat_plain = f"{plain_prefix_text}{dashes}"
+                cat_label = f"[{cat_label_text}]"
+                cat_prefix = f"+-- {cat_label} · {len(entries)} "
+                dashes_count = max(0, layout_width - _measure(cat_prefix, text_len_fn))
+                cat_plain = f"{cat_prefix}{'-' * dashes_count}"
+                cat_markup = (
+                    f"[bold #d79921]+--[/] [bold]{_markup_escape(cat_label)}[/] "
+                    f"[dim]· {len(entries)}[/] [bold #d79921]{'-' * dashes_count}[/]"
+                )
                 emit(cat_markup, cat_plain, log_fn)
 
                 for index, entry in enumerate(entries, start=1):
                     if max_entries is not None and index > max_entries:
                         hidden = len(entries) - (index - 1)
-                        more_plain = f"  … 还有 {hidden} 条（用 --format json 导出查看全部）"
-                        emit(f"[dim]{more_plain}[/]", more_plain, log_fn)
+                        more_full = " " * ENTRY_INDENT + _t("… 还有 {n} 条（--max-entries 0 查看全部）").format(
+                            n=hidden
+                        )
+                        more_short = " " * ENTRY_INDENT + _t("… 还有 {n} 条（--max-entries 0）").format(n=hidden)
+                        more_plain = more_full if _measure(more_full, text_len_fn) <= layout_width else more_short
+                        emit(f"[dim]{_markup_escape(more_plain)}[/]", more_plain, log_fn)
                         break
-                    formatted_plain = _format_entry(entry, display_cwd)
-                    symbol_markup = level_meta.symbol_markup
-                    entry_markup = f"{symbol_markup} {formatted_plain}"
-                    file_line, _, text_part = formatted_plain.partition(" --> ")
-                    if text_part:
-                        entry_markup = f"{symbol_markup} {file_line} [bold cyan]-->[/] {text_part}"
-                    entry_plain_for_logger = f"{level_meta.symbol_plain} {formatted_plain}"
-                    emit(entry_markup, entry_plain_for_logger, log_fn)
+
+                    for entry_markup, entry_plain in _format_entry_lines(entry, display_cwd, layout_width, text_len_fn):
+                        emit(entry_markup, entry_plain, log_fn)
 
                     if show_hints and level in ("error", "warning"):
                         from ..hints import hint_for_entry
@@ -237,15 +240,9 @@ def print_summary(
                             language=_formatter._LANG,
                         )
                         if hint is not None:
-                            hint_plain = f"      ↳ {hint.text}"
-                            emit(f"[dim]{hint_plain}[/]", hint_plain)
-                            if hint.commands:
-                                cmd_plain = "       " + " | ".join(hint.commands)
-                                emit(f"[dim cyan]{cmd_plain}[/]", cmd_plain)
-
-                cat_bottom_sep_markup = f"[dim]{'-' * SUMMARY_TOTAL_LEN}[/]"
-                cat_bottom_sep_plain = "-" * SUMMARY_TOTAL_LEN
-                emit(cat_bottom_sep_markup, cat_bottom_sep_plain, log_fn)
+                            hint_body = "\n".join((hint.text, *(f"$ {command}" for command in hint.commands)))
+                            for hint_markup, hint_plain in _format_hint_lines(hint_body, layout_width, text_len_fn):
+                                emit(hint_markup, hint_plain)
 
         if ref_change_report:
             emit(ref_change_report, ref_change_report)
@@ -258,8 +255,9 @@ def print_summary(
                 added_header,
                 sorted(ref_added_keys),
                 symbol_style="bold green",
-                width=SUMMARY_TOTAL_LEN,
+                width=layout_width,
                 indent="  ",
+                text_len_fn=text_len_fn,
             )
             for line, plain in added_block_markup:
                 emit(line, plain)
@@ -272,8 +270,9 @@ def print_summary(
                 removed_header,
                 sorted(ref_removed_keys),
                 symbol_style="bold red",
-                width=SUMMARY_TOTAL_LEN,
+                width=layout_width,
                 indent="  ",
+                text_len_fn=text_len_fn,
             )
             for line, plain in removed_block_markup:
                 emit(line, plain)
@@ -283,20 +282,23 @@ def print_summary(
             total_t = _t("共")
             unchanged_t = _t("未变动")
             pian_t = _t("篇")
-            pian_space = " " if pian_t else ""
             comma = _t("，")
-            total_plain = (
-                f"  [{ref_label}] {total_t} {ref_total} {pian_t}{pian_space}"
-                f"{comma}{unchanged_t} {ref_unchanged or 0} {pian_t}"
-            )
-            total_markup = (
-                f"[bold]  [{ref_label}] [/]{total_t} {ref_total} {pian_t}{pian_space}"
-                f"{comma}{unchanged_t} {ref_unchanged or 0} {pian_t}"
-            )
+            comma_sep = ", " if comma == "," else comma
+            if pian_t:
+                body = f"{total_t} {ref_total} {pian_t}{comma_sep}{unchanged_t} {ref_unchanged or 0} {pian_t}"
+            else:
+                body = f"{total_t} {ref_total}{comma_sep}{unchanged_t} {ref_unchanged or 0}"
+            total_plain = f"  [{ref_label}] {body}"
+            total_markup = f"[bold]  {_markup_escape(f'[{ref_label}]')} [/]{_markup_escape(body)}"
             emit(total_markup, total_plain)
 
         if ref_key_counts and len(ref_key_counts) > 0:
-            top_block_markup = _format_top_cited(ref_key_counts, top_n=5)
+            top_block_markup = _format_top_cited(
+                ref_key_counts,
+                top_n=5,
+                width=layout_width,
+                text_len_fn=text_len_fn,
+            )
             for line, plain in top_block_markup:
                 emit(line, plain)
 
@@ -370,6 +372,7 @@ def show_log_entries(
     *,
     language: str | None = None,
     translate_fn: Callable[[str], str] | None = None,
+    width: int | None = None,
 ) -> None:
     if language is not None:
         _formatter.set_summary_language(language, translate_fn=translate_fn)
@@ -420,4 +423,5 @@ def show_log_entries(
         ref_unchanged=None,
         ref_key_counts=None,
         text_len_fn=text_len_fn,
+        width=width,
     )

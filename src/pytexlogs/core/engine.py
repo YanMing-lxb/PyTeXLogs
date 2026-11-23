@@ -106,6 +106,7 @@ def run_pipeline(
     *,
     language: str | None = None,
     summary_max_entries: int | None = 20,
+    summary_width: int | None = None,
 ) -> ParsedPipelineReport:
     """入口函数：日志发现 → 解析 → 汇总 → 终端打印 → 报告写盘 → 返回结构化报告。
 
@@ -114,7 +115,8 @@ def run_pipeline(
     已删除，调用方需统一用 ``steps`` + ``captured_outputs`` + ``write_report_file``。
 
     ``summary_max_entries`` 默认每个「等级 × 类别」组只打印 20 条，避免库调用
-    一份大日志时刷屏；显式传 ``None`` 可恢复全量输出。
+    一份大日志时刷屏；显式传 ``None`` 可恢复全量输出。``summary_width`` 用于
+    按调用方控制台宽度覆盖默认 74 列版式。
     """
     if captured_outputs is None:
         captured_outputs = {}
@@ -153,6 +155,7 @@ def run_pipeline(
             text_len_fn=text_len_fn,
             language=language,
             summary_max_entries=summary_max_entries,
+            summary_width=summary_width,
             ephemeral_auxdir=_td is not None,
         )
     finally:
@@ -216,6 +219,7 @@ def _run_pipeline_impl(
     text_len_fn: Callable[[str], int] | None,
     language: str | None = None,
     summary_max_entries: int | None = None,
+    summary_width: int | None = None,
     ephemeral_auxdir: bool = False,
 ) -> ParsedPipelineReport:
 
@@ -427,6 +431,7 @@ def _run_pipeline_impl(
             max_entries=summary_max_entries,
             jobname=hint_jobname,
             root_file=root_file,
+            width=summary_width,
         )
 
     if write_report_file:

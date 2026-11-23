@@ -139,7 +139,10 @@ def _has_error_flag(text: str) -> bool:
     return False
 
 
-_MISSING_FILE_RE = re.compile(r"File\s+`([^'\n]+)'\s+not\s+found", re.IGNORECASE)
+#: TeX 日志按 79 列硬折行，长文件名会断成两行；单引号是文件名的右界，
+#: 因此不能用 ``[^'\n]`` 排除换行，否则 ``File `pressure_cold_\nlayer5.pdf' not
+#: found`` 会落到 ``package_error`` 兜底，丢掉“缺图片”的准确建议。
+_MISSING_FILE_RE = re.compile(r"File\s+`([^']+)'\s+not\s+found", re.IGNORECASE)
 _PACKAGE_ERROR_RE = re.compile(r"(?:Package|Class)\s+(\S+)\s+Error:", re.IGNORECASE)
 _FONT_NOT_FOUND_RE = re.compile(r"Font(?: shape)?\s+`?([^\s'`]+)'?\s+(?:not found|undefined)", re.IGNORECASE)
 #: ``! Font \foo=NoSuchFont at 10.0pt not loadable: Metric (TFM) file not found.``
@@ -276,10 +279,24 @@ _LOG_HINT_EN = {
 }
 
 
+def _join_wrapped_name(name: str) -> str:
+    """把被 ``max_print_line`` 折断的文件名接回去。
+
+    TeX 在 79 列处硬折行，断点可能落在文件名中间（``pressure_cold_`` +
+    ``layer5.pdf``）。段尾/段首有空格时才补一个空格，否则直接粘合，避免给
+    ``kpsewhich`` 造出一个实际上不存在的空格。
+    """
+    parts = name.split("\n")
+    joined = parts[0]
+    for part in parts[1:]:
+        joined = f"{joined} {part.lstrip()}" if joined.endswith(" ") else joined + part
+    return joined
+
+
 def _missing_file_name(text: str) -> str | None:
     """提取 ``File `xxx' not found`` 中的文件名（不做任何归因）。"""
     match = _MISSING_FILE_RE.search(text)
-    return match.group(1) if match else None
+    return _join_wrapped_name(match.group(1)) if match else None
 
 
 def _package_stem(name: str) -> str | None:

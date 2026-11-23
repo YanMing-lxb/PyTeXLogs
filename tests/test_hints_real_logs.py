@@ -264,6 +264,19 @@ def test_fontset_unavailable_message() -> None:
     assert "当前引擎模式不支持" in hint.text
 
 
+def test_missing_graphic_hint_survives_tex_line_wrap() -> None:
+    """TeX 79 列硬折行把文件名拆成两行时，仍要命中“缺图片”而不是宏包兜底。"""
+    text = "Package luatex.def Error: File `pressure_cold_\nlayer5.pdf' not found: using draft setting."
+    hint = hint_for_text(text)
+    assert hint is not None
+    assert hint.rule_id == "missing_file"
+    assert hint.kind == "missing_graphic"
+    assert "找不到图片" in hint.text
+    assert "pressure_cold_layer5.pdf" in hint.text
+    assert "pressure_cold_layer5.pdf" in hint.commands[0]
+    assert "\n" not in hint.commands[0]
+
+
 def test_missing_bbl_substitutes_jobname() -> None:
     hint = hint_for_text("No file main.bbl.", jobname="main")
     assert hint is not None

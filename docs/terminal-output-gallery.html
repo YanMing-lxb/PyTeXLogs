@@ -1,0 +1,464 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PyTeXLogs 终端输出全览</title>
+<style>
+:root {
+  --bg: #0b0e14;
+  --panel: #12161f;
+  --panel-2: #0e1219;
+  --line: #232936;
+  --text: #c9d1d9;
+  --muted: #8b949e;
+  --accent: #d79921;
+  --mono: "Cascadia Mono", "Sarasa Mono SC", "JetBrains Mono", Consolas, "Microsoft YaHei UI", monospace;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font: 15px/1.7 -apple-system, "Segoe UI", "Microsoft YaHei UI", sans-serif;
+}
+.wrap { max-width: 1120px; margin: 0 auto; padding: 48px 28px 72px; }
+.eyebrow { color: var(--accent); font-size: 12px; letter-spacing: .18em; text-transform: uppercase; }
+h1 { font-size: 34px; line-height: 1.25; margin: 10px 0 12px; font-weight: 650; }
+.lede { color: var(--muted); max-width: 820px; }
+code { font-family: var(--mono); font-size: .92em; color: #d7dee8; background: #171c26; border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; }
+.meta { display: flex; gap: 18px; flex-wrap: wrap; margin: 22px 0 30px; color: var(--muted); font-size: 13px; }
+.meta code { color: var(--text); }
+.legend { display: flex; gap: 10px; flex-wrap: wrap; margin: 26px 0 8px; }
+.chip { border: 1px solid var(--line); border-radius: 999px; padding: 6px 12px; font-size: 12.5px; display: inline-flex; align-items: center; gap: 7px; color: var(--muted); }
+.dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+.toc { margin: 34px 0 10px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 16px 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px 20px; }
+.toc a { color: var(--text); text-decoration: none; font-size: 14px; }
+.toc a:hover { color: var(--accent); }
+.toc .num { color: var(--accent); font-family: var(--mono); font-size: 12px; margin-right: 8px; }
+section { margin-top: 52px; }
+.sec-head { display: flex; align-items: baseline; gap: 12px; border-bottom: 1px solid var(--line); padding-bottom: 10px; margin-bottom: 8px; }
+.sec-num { color: var(--accent); font-family: var(--mono); font-size: 13px; }
+.sec-head h2 { font-size: 22px; margin: 0; font-weight: 620; }
+.sec-intro { color: var(--muted); margin: 6px 0 22px; max-width: 860px; }
+.case { margin: 26px 0 34px; }
+.case-head { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.case h3 { font-size: 16.5px; margin: 0; font-weight: 600; }
+.case-desc { color: var(--muted); font-size: 13.5px; margin: 5px 0 12px; }
+.term { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--panel-2); box-shadow: 0 14px 34px rgba(0,0,0,.35); }
+.bar { display: flex; align-items: center; gap: 8px; padding: 9px 12px; background: var(--panel); border-bottom: 1px solid var(--line); }
+.bar .lights { display: flex; gap: 6px; }
+.bar .lights i { width: 10px; height: 10px; border-radius: 50%; display: block; background: #2b3444; }
+.bar .lights i:first-child { background: #3a2a30; }
+.cmd { font-family: var(--mono); font-size: 12.5px; color: #9da7b3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.badge { font-family: var(--mono); font-size: 10.5px; letter-spacing: .08em; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 2px 6px; }
+pre.body { margin: 0; padding: 16px 18px; font-family: var(--mono); font-size: 13px; line-height: 1.62; color: #c8d0da; white-space: pre; overflow-x: auto; tab-size: 4; }
+pre.body::-webkit-scrollbar { height: 9px; }
+pre.body::-webkit-scrollbar-thumb { background: #2b3444; border-radius: 4px; }
+.b { font-weight: 700; }
+.d { opacity: .52; }
+.u { text-decoration: underline; }
+.notes { margin: 10px 0 0; padding: 0; list-style: none; }
+.notes li { color: var(--muted); font-size: 13px; line-height: 1.65; padding-left: 18px; position: relative; margin: 3px 0; }
+.notes li:before { content: "·"; position: absolute; left: 4px; color: var(--accent); }
+.notes code { color: #c8d0da; background: #171c26; border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; font-family: var(--mono); font-size: 12px; }
+.coverage { display: grid; grid-template-columns: 130px 1fr; gap: 0; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.coverage > div { padding: 11px 14px; border-bottom: 1px solid var(--line); font-size: 13px; }
+.coverage > div:nth-child(2n) { color: var(--muted); border-left: 1px solid var(--line); }
+.coverage > div:nth-last-child(-n+2) { border-bottom: 0; }
+.coverage .k { color: var(--text); font-weight: 600; }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
+@media (max-width: 880px) { .two { grid-template-columns: 1fr; } }
+.card { border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; background: var(--panel); }
+.card h3 { margin: 0 0 10px; font-size: 15px; }
+.card ul { margin: 0; padding-left: 18px; color: var(--muted); font-size: 13px; }
+.card li { margin: 7px 0; }
+.card li strong { color: var(--text); font-weight: 600; }
+.footer { margin-top: 60px; padding-top: 18px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12.5px; }
+</style></head><body><div class="wrap">
+<div class="eyebrow">PyTeXLogs · Terminal Output Gallery</div>
+<h1>终端输出全览：0.6.2 现状快照</h1>
+<p class="lede" style="border-left:3px solid var(--accent); padding-left:12px;"><strong>这份页面记录的是 0.6.2 旧版式。</strong> 0.6.3 已改为可配置宽度、悬挂缩进、标题带条数，分隔线沿用旧版 <code>====</code> / <code>+--</code> 样式，<a href="terminal-output-0.6.3.html" style="color:var(--accent);">查看 0.6.3 新版预览 →</a>。下面保留旧输出用于对照。</p>
+<p class="lede">下面按「用户从敲命令到看到异常」的顺序，把 PyTeXLogs 当前会打印的形态逐块展开。色块是按 ANSI 标准色近似的暗色主题效果，真实色相取决于你的终端主题；布局、缩进、字符与折行是逐字捕获的。</p>
+<div class="meta"><span>版本 <code>pytexlogs 0.6.2</code></span><span>渲染 <code>rich</code>（force_terminal，truecolor）</span><span>生成日期 2026-11-23</span><span>源码 <code>src/pytexlogs/display/</code></span></div>
+<div class="legend">
+  <span class="chip"><i class="dot" style="background:#e06c75"></i>ERROR / 红</span>
+  <span class="chip"><i class="dot" style="background:#e5c07b"></i>WARNING / 黄</span>
+  <span class="chip"><i class="dot" style="background:#61afef"></i>INFO / 蓝</span>
+  <span class="chip"><i class="dot" style="background:#8b949e"></i>T / 灰</span>
+  <span class="chip"><i class="dot" style="background:#bb9af7"></i>F / 紫</span>
+  <span class="chip"><i class="dot" style="background:#7dcfff"></i>G / 青</span>
+  <span class="chip"><i class="dot" style="background:#9ece6a"></i>P / 绿</span>
+  <span class="chip"><i class="dot" style="background:#d79921"></i>结构色 #d79921</span>
+  <span class="chip"><i class="dot" style="background:#56b6c2"></i>箭头 / 文件行</span>
+</div>
+<div class="toc">
+<div><a href="#sec-cli"><span class="num">01</span>入口与帮助</a></div>
+<div><a href="#sec-result"><span class="num">02</span>检查结果主视图</a></div>
+<div><a href="#sec-matrix"><span class="num">03</span>摘要内部样式矩阵</a></div>
+<div><a href="#sec-edge"><span class="num">04</span>异常、空态与边界</a></div>
+<div><a href="#sec-mode"><span class="num">05</span>输出模式与退化路径</a></div>
+<div><a href="#sec-obs"><span class="num">06</span>观察与调整方向</a></div>
+</div>
+<section id="sec-cli"><div class="sec-head"><span class="sec-num">01</span><h2>入口与帮助</h2></div><p class="sec-intro">用户最先看到的框架文案：帮助、版本、demo、explain。</p>
+<div class="case"><div class="case-head"><h3>--help 主帮助页</h3></div><p class="case-desc">argparse 原生骨架：usage 自动折行、英文标题（positional arguments / options），中文描述混排；无颜色、无分组。</p><div class="term"><div class="bar"><span class="lights"><i></i><i></i><i></i></span><span class="cmd">$ pytexlogs --help</span><span class="badge">STDOUT</span></div><pre class="body">usage: pytexlogs [-h] [--version] [--completion {bash,zsh,fish,powershell}]
+                 [--lang {en,zh}] [--format {text,json,csv,sarif}]
+                 [--output OUTPUT]
+                 [--severity {error,warning,info,all,error+warning}]
+                 [--root-file ROOT_FILE] [--jobname JOBNAME] [--open]
+                 [--open-all] [--editor EDITOR] [--dry-run]
+                 [--max-entries MAX_ENTRIES] [--no-hints]
+                 [--baseline BASELINE] [--recursive]
+                 &lt;subcmd&gt; ...
+
+PyTeXLogs: LaTeX 工具日志解析 CLI（零第三方硬依赖）。
+
+positional arguments:
+  &lt;subcmd&gt;
+    check               检查日志，发现 ERROR 则返回 exitcode=1
+    summary             仅打印摘要（不返回 error exitcode）
+    export              导出 JSON/CSV/SARIF（默认 stdout，--format 覆盖）
+    explain             查询某条日志文本对应的可执行建议（hint）
+    demo                跑独立库内置演示（integration_demo.run_demo）
+
+options:
+  -h, --help            show this help message and exit
+  --version             show program&#x27;s version number and exit
+  --completion {bash,zsh,fish,powershell}
+                        输出指定 shell 的补全脚本后退出（bash/zsh/fish/powershell）
+  --lang {en,zh}        摘要语言（zh / en），默认 zh
+  --format {text,json,csv,sarif}
+                        输出格式：text/json/csv/sarif（默认 text）
+  --output, -o OUTPUT   输出到文件（默认 stdout）
+  --severity {error,warning,info,all,error+warning}
+                        仅展示/导出 ≥ 该严重度的条目（默认 error+warning）
+  --root-file ROOT_FILE
+                        传给 parser 的主 .tex 路径（可选）
+  --jobname JOBNAME     目录模式的 jobname（默认取目录里首个带 \documentclass 的 .tex）
+  --open                尝试对 ERROR 条目打开编辑器跳转（默认只开第一条）
+  --open-all            --open 时打开所有 ERROR 条目（默认只开第一条）
+  --editor EDITOR       编辑器：auto | code | subl | nvim | gvim | custom:&quot;code
+                        --goto %f:%l&quot;
+  --dry-run             仅打印 --open 将要执行的命令，不真的启动进程
+  --max-entries MAX_ENTRIES
+                        文本摘要每个分组最多展示 N 条（默认 10，0 表示不限制）
+  --no-hints            不在摘要里追加可执行建议
+  --baseline BASELINE   上次的报告 JSON；只输出本次新增/变化的条目
+  --recursive           目录模式递归扫描子目录（只处理含 .log/.tex 的目录）
+
+示例：pytexlogs main.log | pytexlogs main.log --open | pytexlogs Build/ --jobname main --format sarif | pytexlogs explain &#x27;Missing character&#x27;
+退出码：0=无错误；1=check 命中错误（或 --fail-on warning 时命中警告）；2=参数/运行异常。</pre></div><ul class="notes"><li>帮助正文按终端宽度（此处 80 列）二次折行；<code>--severity</code> 的 choices 很长，占满一整行。</li><li><code>usage:</code>、<code>positional arguments:</code>、<code>options:</code> 为 argparse 默认英文，与中文简介混排。</li><li>退出码说明直接接在示例后，没有独立小节。</li></ul></div>
+<div class="case"><div class="case-head"><h3>--version</h3></div><p class="case-desc">argparse 的 version action，单行纯文本，无前缀样式。</p><div class="term"><div class="bar"><span class="lights"><i></i><i></i><i></i></span><span class="cmd">$ pytexlogs --version</span><span class="badge">STDOUT</span></div><pre class="body">pytexlogs 0.6.2</pre></div></div>
+<div class="case"><div class="case-head"><h3>demo 内置演示</h3></div><p class="case-desc">外层 60 个 <code>=</code> 的英文横幅 + 内层 74 列的彩色摘要，两套宽度与语言并存。</p><div class="term"><div class="bar"><span class="lights"><i></i><i></i><i></i></span><span class="cmd">$ pytexlogs demo</span><span class="badge">STDOUT</span></div><pre class="body">============================================================
+PyTeXLogs Integration Demo
+============================================================
+<span class="b" style="color:#e06c75">================================== 错误汇总 ==================================</span>
+<span class="b" style="color:#d79921">+--</span> <span class="b">[一般编译]</span> <span class="b" style="color:#d79921">---------------------------------------------------------------</span>
+<span class="b" style="color:#e06c75">  [E]</span> article.cls:5 <span class="b" style="color:#56b6c2">--&gt;</span> Undefined control sequence.
+<span class="b" style="color:#e06c75">  [E]</span> article.cls:5 <span class="b" style="color:#56b6c2">--&gt;</span> Emergency stop.
+<span class="b" style="color:#e06c75">  [E]</span> article.cls:1 <span class="b" style="color:#56b6c2">--&gt;</span> ==&gt; Fatal error occurred, no output PDF file produced!
+<span class="d">--------------------------------------------------------------------------</span>
+<span class="b" style="color:#e5c07b">================================== 警告汇总 ==================================</span>
+<span class="b" style="color:#d79921">+--</span> <span class="b">[参考文献]</span> <span class="b" style="color:#d79921">---------------------------------------------------------------</span>
+<span class="b" style="color:#e5c07b">  [W]</span> main.tex:1 <span class="b" style="color:#56b6c2">--&gt;</span> I couldn&#x27;t open database file references.bib
+<span class="d">--------------------------------------------------------------------------</span>
+============================================================
+Demo completed.</pre></div><ul class="notes"><li>横幅宽度 60、摘要宽度 74，同一屏出现两条不同长度的基准线。</li><li>横幅与结束语为英文，摘要为中文。</li><li>demo 数据把 <code>article.cls</code> 当成条目文件（来自临时日志的栈推导）。</li></ul></div>
+<div class="case"><div class="case-head"><h3>explain：命中建议</h3></div><p class="case-desc">单条建议正文；若有可执行命令，会另起 <code>  $ cmd</code> 行（本次该条无命令）。</p><div class="term"><div class="bar"><span class="lights"><i></i><i></i><i></i></span><span class="cmd">$ pytexlogs explain &#x27;Missing character&#x27;</span><span class="badge">STDOUT</span></div><pre class="body">当前字体不含该字形：更换包含该字符的字体，或用 \newunicodechar 映射；中文/全角字符请配置 ctex/xeCJK 中文字体。</pre></div><ul class="notes"><li>无标题、无缩进层级；正文与命令行的前缀不统一。</li></ul></div>
+<div class="case"><div class="case-head"><h3>explain：无匹配 / 空参数</h3></div><p class="case-desc">两条错误提示都走 stderr，纯文本、无颜色、无图标。</p><div class="term"><div class="bar"><span class="lights"><i></i><i></i><i></i></span><span class="cmd">$ pytexlogs explain &#x27;乱码文本abc&#x27;  |  pytexlogs explain</span><span class="badge">STDERR</span></div><pre class="body">没有匹配到内置建议；可先用 `pytexlogs &lt;log&gt;` 查看条目上下文。
+请给出一段日志文本，例如：pytexlogs explain &#x27;Missing character&#x27;</pre></div><ul class="notes"><li>与 <code>check</code> 的 <code>warning:</code> 前缀风格不一致（一个是中文句子，一个是英文小写前缀）。</li></ul></div>
+</section>
+<section id="sec-result"><div class="sec-head"><span class="sec-num">02</span><h2>检查结果主视图</h2></div><p class="sec-intro"><code>check</code> 的完整输出：CLI 统计头 + 分级摘要 + 建议 + 折叠。<code>summary</code> 与 <code>export --format text</code> 复用同一渲染；JSON/CSV/SARIF 是机器载荷，不在本图范围。</p>
+<div class="case"><div class="case-head"><h3>默认 check：单文件、有 ERROR</h3></div><p class="case-desc">CLI 固定头的三行 + 错误汇总；每条 ERROR 后跟一行 <code>↳</code> 建议，有命令时再加一行。</p><div class="term"><div class="bar"><span class="lights"><i></i><i></i><i></i></span><span class="cmd">$ pytexlogs tests/fixtures/sample.log</span><span class="badge">STDOUT</span></div><pre class="body">=== PyTeXLogs Summary ===
+By category: compile=3
+By parser:   latex=3
+<span class="b" style="color:#e06c75">================================== 错误汇总 ==================================</span>
+<span class="b" style="color:#d79921">+--</span> <span class="b">[一般编译]</span> <span class="b" style="color:#d79921">---------------------------------------------------------------</span>
+<span class="b" style="color:#e06c75">  [E]</span> article.cls:5 <span class="b" style="color:#56b6c2">--&gt;</span> Undefined control sequence.
+<span class="d">      ↳ 未定义命令 `\foobar`：检查拼写/大小写；若是宏包提供的命令，确认对应 \usepackage 已加载。</span>
+<span class="d" style="color:#56b6c2">       grep -R &quot;\\foobar&quot; *.tex | tlmgr search --global --file foobar.sty</span>
+<span class="b" style="color:#e06c75">  [E]</span> article.cls:5 <span class="b" style="color:#56b6c2">--&gt;</span> Emergency stop.
+<span class="d">      ↳ 编译被致命错误中断：先修复日志里 Emergency stop 上方的第一条错误。</span>
+<span class="b" style="color:#e06c75">  [E]</span> article.cls:1 <span class="b" style="color:#56b6c2">--&gt;</span> ==&gt; Fatal error occurred, no output PDF file produced!
+<span class="d">      ↳ 编译被致命错误中断：先修复日志里 Emergency stop 上方的第一条错误。</span>
+<span class="d">--------------------------------------------------------------------------</span>
+</pre></div><ul class="notes"><li>CLI 头 <code>=== PyTeXLogs Summary === / By category / By parser</code> 硬编码英文，中文模式也照打。</li><li><code>By category</code> 的值是内部键 <code>compile</code>，与下方分类标签「一般编译」不是同一套词。</li><li>建议行 6 空格、命令行 7 空格，和条目 2 空格缩进无父子关系。</li><li>同一句「编译被致命错误中断…」在两条 ERROR 下重复出现，没有合并。</li></ul></div>
+<div class="case"><div class="case-head"><h3>--severity all：信息洪峰与 80 列折行</h3></div><p class="case-desc">358 条条目：2 条 WARNING 后接 356 条 INFO，每类最多 10 条，其余折叠。正好暴露 80 列下的换行缺陷。</p><div class="term"><div class="bar"><span class="lights"><i></i><i></i><i></i></span><span class="cmd">$ pytexlogs &lt;miktex.log&gt; --severity all</span><span class="badge">STDOUT</span></div><pre class="body">=== PyTeXLogs Summary ===
+By category: compile=358
+By parser:   latex=358
+<span class="b" style="color:#e5c07b">================================== 警告汇总 ==================================</span>
+<span class="b" style="color:#d79921">+--</span> <span class="b">[一般编译]</span> <span class="b" style="color:#d79921">---------------------------------------------------------------</span>
+<span class="b" style="color:#e5c07b">  [W]</span> scheme:1 <span class="b" style="color:#56b6c2">--&gt;</span> Class ctexart Warning: Redefining CJKfamily `\CJKrmdefault&#x27;
+(SimSun).
+<span class="b" style="color:#e5c07b">  [W]</span> scheme:1 <span class="b" style="color:#56b6c2">--&gt;</span> Missing character: There is no 中 (U+4E2D) in font
+&quot;name:Latin Modern
+Roman:mode=node;script=latn;language=dflt;jfm=zh_CN/{quanjiao}&quot;! (12
+occurrences, 4 distinct glyphs: 中, 文, 测, 试)
+<span class="d">      ↳ 字体 `Latin Modern Roman` 没有中文字形 `中`（U+4E2D）。分两步排查：① </span>
+<span class="d">若还在 pdfLaTeX，中文不能交给默认拉丁字体，改用 XeLaTeX/LuaLaTeX + ctex（或 </span>
+<span class="d">xeCJK）；② 已在 Xe/Lua + ctex/xeCJK 时，症结是当前 CJK 字体不含该字：用 </span>
+<span class="d">`\setCJKmainfont`/`\setCJKsansfont` 换含该字的中文字体，或补 FallBack </span>
+<span class="d">字体。xeCJK 可直接按字体文件名加载（如 `\setCJKmainfont{ukai.ttc}`），不需要 </span>
+<span class="d">NFSS 的 `\DeclareFontFamily`/`\DeclareFontShape`。</span>
+<span class="d" style="color:#56b6c2">       \usepackage{ctex} | XeLaTeX/LuaLaTeX lualatex_xecjk_missing_glyph.tex</span>
+<span class="d">--------------------------------------------------------------------------</span>
+<span class="b" style="color:#61afef">================================== 提示汇总 ==================================</span>
+<span class="b" style="color:#d79921">+--</span> <span class="b">[一般编译]</span> <span class="b" style="color:#d79921">---------------------------------------------------------------</span>
+<span class="b" style="color:#61afef">  [I]</span> ts1enc:47 <span class="b" style="color:#56b6c2">--&gt;</span> LaTeX Font Info: Redeclaring font encoding TS1.
+<span class="b" style="color:#61afef">  [I]</span> ts1enc:1 <span class="b" style="color:#56b6c2">--&gt;</span> LaTeX Encoding Info: Redeclaring text command \capitalcedilla
+(encoding TS1)
+ on input line 49.
+<span class="b" style="color:#61afef">  [I]</span> ts1enc:1 <span class="b" style="color:#56b6c2">--&gt;</span> LaTeX Encoding Info: Redeclaring text command \capitalogonek
+(encoding TS1)
+on input line 52.
+<span class="b" style="color:#61afef">  [I]</span> ts1enc:1 <span class="b" style="color:#56b6c2">--&gt;</span> LaTeX Encoding Info: Redeclaring text command \capitalgrave
+(encoding TS1) o
+n input line 55.
+<span class="b" style="color:#61afef">  [I]</span> ts1enc:1 <span class="b" style="color:#56b6c2">--&gt;</span> LaTeX Encoding Info: Redeclaring text command \capitalacute
+(encoding TS1) o
+n input line 56.
+<span class="b" style="color:#61afef">  [I]</span> ts1enc:1 <span class="b" style="color:#56b6c2">--&gt;</span> LaTeX Encoding Info: Redeclaring text command
+\capitalcircumflex (encoding T
+S1) on input line 57.
+<span class="b" style="color:#61afef">  [I]</span> ts1enc:1 <span class="b" style="color:#56b6c2">--&gt;</span> LaTeX Encoding Info: Redeclaring text command \capitaltilde
+(encoding TS1) o
+n input line 58.
+<span class="b" style="color:#61afef">  [I]</span> ts1enc:1 <span class="b" style="color:#56b6c2">--&gt;</span> LaTeX Encoding Info: Redeclaring text command
+\capitaldieresis (encoding TS1
+) on input line 59.
+<span class="b" style="color:#61afef">  [I]</span> ts1enc:1 <span class="b" style="color:#56b6c2">--&gt;</span> LaTeX Encoding Info: Redeclaring text command
+\capitalhungarumlaut (encoding
+ TS1) on input line 60.
+<span class="b" style="color:#61afef">  [I]</span> ts1enc:1 <span class="b" style="color:#56b6c2">--&gt;</span> LaTeX Encoding Info: Redeclaring text command \capitalring
+(encoding TS1) on
+ input line 61.
+<span class="d">  … 还有 346 条（用 --format json 导出查看全部）</span>
+<span class="d">--------------------------------------------------------------------------</span>
+</pre></div><ul class="notes"><li>长条目在 80 列被硬折行，续行从第 0 列开始（<code>on input line 49.</code> / <code>on input line 52.</code>），失去缩进。</li><li><code>… 还有 346 条（用 --format json 导出查看全部）</code> 与条目同为 2 空格，视觉上像一条新条目。</li><li>提示汇总整组为 dim 灰色，和上方警告形成很强的主次差（也接近不可读）。</li></ul></div>
+<div class="case"><div class="case-head"><h3>--max-entries：分组折叠</h3></div><p class="case-desc">只显示前 2 条，其余折叠为一行；折叠行使用全角省略号 + 中文括号。</p><div class="term"><div class="bar"><span class="lights"><i></i><i></i><i></i></span><span class="cmd">$ pytexlogs &lt;log&gt; --max-entries 2</span><span class="badge">STDOUT</span></div><pre class="body"><span class="b" style="color:#e5c07b">================================== 警告汇总 ==================================</span>
+<span class="b" style="color:#d79921">+--</span> <span class="b">[一般编译]</span> <span class="b" style="color:#d79921">---------------------------------------------------------------</span>
+<span class="b" style="color:#e5c07b">  [W]</span> chapters/results.tex:1 <span class="b" style="color:#56b6c2">--&gt;</span> Reference `fig:case-01&#x27; on page 1 undefined on input line 1.
+<span class="d">      ↳ 交叉引用 `fig:case-01` 未定义：确认 \label 拼写，并用当前引擎再编译一轮让 .aux 收敛。</span>
+<span class="d" style="color:#56b6c2">       pdflatex &lt;主文件&gt;.tex  # 用当前引擎再跑一轮</span>
+<span class="b" style="color:#e5c07b">  [W]</span> chapters/results.tex:2 <span class="b" style="color:#56b6c2">--&gt;</span> Reference `fig:case-02&#x27; on page 2 undefined on input line 2.
+<span class="d">      ↳ 交叉引用 `fig:case-02` 未定义：确认 \label 拼写，并用当前引擎再编译一轮让 .aux 收敛。</span>
+<span class="d" style="color:#56b6c2">       pdflatex &lt;主文件&gt;.tex  # 用当前引擎再跑一轮</span>
+<span class="d">  … 还有 10 条（用 --format json 导出查看全部）</span>
+<span class="d">--------------------------------------------------------------------------</span>
+</pre></div><ul class="notes"><li>折叠行没有前缀符号，和条目一样 2 空格，容易被当成内容。</li><li>同类条目的 hint 逐条重复：2 条条目就多占 4 行建议，折叠也挡不住。</li><li>提示「用 --format json 导出查看全部」把「查看」与「导出」混在一句里。</li></ul></div>
+<div class="case"><div class="case-head"><h3>--lang en：英文摘要</h3></div><p class="case-desc">等级标题、分类标签、hint 文本全部切换英文；分隔线仍按 74 列计算。</p><div class="term"><div class="bar"><span class="lights"><i></i><i></i><i></i></span><span class="cmd">$ pytexlogs tests/fixtures/sample.log --lang en</span><span class="badge">STDOUT</span></div><pre class="body">=== PyTeXLogs Summary ===
+By category: compile=3
+By parser:   latex=3
+<span class="b" style="color:#e06c75">============================= Error Summary ==============================</span>
+<span class="b" style="color:#d79921">+--</span> <span class="b">[Compilation]</span> <span class="b" style="color:#d79921">--------------------------------------------------------</span>
+<span class="b" style="color:#e06c75">  [E]</span> article.cls:5 <span class="b" style="color:#56b6c2">--&gt;</span> Undefined control sequence.
+<span class="d">      ↳ Undefined command `\foobar`: check spelling/case; if a package provides it, confirm the </span>
+<span class="d">matching \usepackage is loaded.</span>
+<span class="d" style="color:#56b6c2">       grep -R &quot;\\foobar&quot; *.tex | tlmgr search --global --file foobar.sty</span>
+<span class="b" style="color:#e06c75">  [E]</span> article.cls:5 <span class="b" style="color:#56b6c2">--&gt;</span> Emergency stop.
+<span class="d">      ↳ Compilation was stopped by a fatal error: fix the first error above Emergency stop.</span>
+<span class="b" style="color:#e06c75">  [E]</span> article.cls:1 <span class="b" style="color:#56b6c2">--&gt;</span> ==&gt; Fatal error occurred, no output PDF file produced!
+<span class="d">      ↳ Compilation was stopped by a fatal error: fix the first error above Emergency stop.</span>
+<span class="d">--------------------------------------------------------------------------</span>
+</pre></div><ul class="notes"><li>英文标题更短，<code>====</code> 数量随之变化，但总宽不变。</li><li>CLI 头三行本来就是英文，切到 en 后不再显突兀；中文模式下它们才是混排来源。</li><li>hint 文本由 <code>hints</code> 内置英文表提供，长度普遍比中文长，100 列下已接近边界。</li></ul></div>
+<div class="case"><div class="case-head"><h3>--severity error：只留错误组</h3></div><p class="case-desc"><code>non_quiet=False</code> 只剩 ERROR 组；警告组连标题都不打印。</p><div class="term"><div class="bar"><span class="lights"><i></i><i></i><i></i></span><span class="cmd">$ pytexlogs &lt;log&gt; --severity error</span><span class="badge">STDOUT</span></div><pre class="body"><span class="b" style="color:#e06c75">================================== 错误汇总 ==================================</span>
+<span class="b" style="color:#d79921">+--</span> <span class="b">[一般编译]</span> <span class="b" style="color:#d79921">---------------------------------------------------------------</span>
+<span class="b" style="color:#e06c75">  [E]</span> main.tex:42 <span class="b" style="color:#56b6c2">--&gt;</span> Undefined control sequence.
+<span class="d">--------------------------------------------------------------------------</span>
+</pre></div><ul class="notes"><li>用户无法从输出判断「警告被过滤了」还是「本来就没有警告」——没有「已隐藏 N 条 warning」的提示。</li></ul></div>
+</section>
+<section id="sec-matrix"><div class="sec-head"><span class="sec-num">03</span><h2>摘要内部样式矩阵</h2></div><p class="sec-intro">把等级、分类、条目、hint、参考文献逐一拆开，检查每个零件的现状。</p>
+<div class="case"><div class="case-head"><h3>七个等级标题（全部并列）</h3></div><p class="case-desc">每个等级一条 74 列大分隔线 + 分类标题 + 条目 + 74 列底边；7 组共 28 行框架。</p><div class="term"><div class="bar"><span class="lights"><i></i><i></i><i></i></span><span class="cmd">$ print_summary(show_info=True) — 仅库/测试可达</span><span class="badge">STDOUT</span></div><pre class="body"><span class="b" style="color:#e06c75">================================== 错误汇总 ==================================</span>
+<span class="b" style="color:#d79921">+--</span> <span class="b">[一般编译]</span> <span class="b" style="color:#d79921">---------------------------------------------------------------</span>
+<span class="b" style="color:#e06c75">  [E]</span> chapters/results.tex:40 <span class="b" style="color:#56b6c2">--&gt;</span> Undefined control sequence: \heatflux.
+<span class="d">--------------------------------------------------------------------------</span>
+<span class="b" style="color:#e5c07b">================================== 警告汇总 ==================================</span>
+<span class="b" style="color:#d79921">+--</span> <span class="b">[一般编译]</span> <span class="b" style="color:#d79921">---------------------------------------------------------------</span>
+<span class="b" style="color:#e5c07b">  [W]</span> chapters/results.tex:41 <span class="b" style="color:#56b6c2">--&gt;</span> Reference `fig:mesh&#x27; on page 7 undefined on input line 128.
+<span class="d">--------------------------------------------------------------------------</span>
+<span class="b" style="color:#61afef">================================== 提示汇总 ==================================</span>
+<span class="b" style="color:#d79921">+--</span> <span class="b">[一般编译]</span> <span class="b" style="color:#d79921">---------------------------------------------------------------</span>
+<span class="b" style="color:#61afef">  [I]</span> chapters/results.tex:42 <span class="b" style="color:#56b6c2">--&gt;</span> LaTeX Font Info: Redeclaring font encoding TS1.
+<span class="d">--------------------------------------------------------------------------</span>
+<span class="d">================================= 排版提示汇总 =================================</span>
+<span class="b" style="color:#d79921">+--</span> <span class="b">[一般编译]</span> <span class="b" style="color:#d79921">---------------------------------------------------------------</span>
+<span class="d">  [T]</span> chapters/results.tex:43 <span class="b" style="color:#56b6c2">--&gt;</span> Overfull \hbox (12.4pt too wide) in paragraph at lines 96--99
+<span class="d">--------------------------------------------------------------------------</span>
+<span class="d" style="color:#c678dd">================================= 字体提示汇总 =================================</span>
+<span class="b" style="color:#d79921">+--</span> <span class="b">[一般编译]</span> <span class="b" style="color:#d79921">---------------------------------------------------------------</span>
+<span class="d" style="color:#c678dd">  [F]</span> chapters/results.tex:44 <span class="b" style="color:#56b6c2">--&gt;</span> Missing character: There is no 焓 (U+7118) in font &quot;Latin Modern
+Roman&quot;!
+<span class="d">--------------------------------------------------------------------------</span>
+<span class="d" style="color:#56b6c2">================================= 图形提示汇总 =================================</span>
+<span class="b" style="color:#d79921">+--</span> <span class="b">[一般编译]</span> <span class="b" style="color:#d79921">---------------------------------------------------------------</span>
+<span class="d" style="color:#56b6c2">  [G]</span> chapters/results.tex:45 <span class="b" style="color:#56b6c2">--&gt;</span> File `figures/heatmap.pdf&#x27; not found: using draft setting.
+<span class="d">--------------------------------------------------------------------------</span>
+<span class="d" style="color:#98c379">================================= 页面提示汇总 =================================</span>
+<span class="b" style="color:#d79921">+--</span> <span class="b">[一般编译]</span> <span class="b" style="color:#d79921">---------------------------------------------------------------</span>
+<span class="d" style="color:#98c379">  [P]</span> chapters/results.tex:46 <span class="b" style="color:#56b6c2">--&gt;</span> Underfull \vbox (badness 10000) has occurred while \output is
+active (7)
+<span class="d">--------------------------------------------------------------------------</span>
+</pre></div><ul class="notes"><li><code>font</code>/<code>graphic</code>/<code>page</code> 三组目前没有任何解析器产出（全仓库仅 <code>latex.py</code> 产出 <code>typesetting</code>），属于预留展示位。</li><li><code>[T]</code> 为 dim（纯灰）、<code>[F]</code> dim magenta、<code>[G]</code> dim cyan、<code>[P]</code> dim green——四组都靠「暗色 + 色相」区分，深色终端对比度低。</li><li>七个等级标题全用 <code>=</code> 横幅，视觉权重相同，INFO 和 ERROR 一样抢眼。</li></ul></div>
+<div class="case"><div class="case-head"><h3>八个分类标题（同一警告组下）</h3></div><p class="case-desc">分类顺序固定：参考文献 → 索引 → 术语 → 代码 → 图形 → 外部工具 → 自定义 → 一般编译。</p><div class="term"><div class="bar"><span class="lights"><i></i><i></i><i></i></span><span class="cmd">$ print_summary() — 每个 ParsedLog.category 一个分组</span><span class="badge">STDOUT</span></div><pre class="body"><span class="b" style="color:#e5c07b">================================== 警告汇总 ==================================</span>
+<span class="b" style="color:#d79921">+--</span> <span class="b">[参考文献]</span> <span class="b" style="color:#d79921">---------------------------------------------------------------</span>
+<span class="b" style="color:#e5c07b">  [W]</span> main.blg:3 <span class="b" style="color:#56b6c2">--&gt;</span> I couldn&#x27;t open database file references.bib
+<span class="d">--------------------------------------------------------------------------</span>
+<span class="b" style="color:#d79921">+--</span> <span class="b">[索引]</span> <span class="b" style="color:#d79921">-----------------------------------------------------------------</span>
+<span class="b" style="color:#e5c07b">  [W]</span> main.ilg:1 <span class="b" style="color:#56b6c2">--&gt;</span> Input index file main.idx not found.
+<span class="d">--------------------------------------------------------------------------</span>
+<span class="b" style="color:#d79921">+--</span> <span class="b">[术语/词汇表]</span> <span class="b" style="color:#d79921">-------------------------------------------------------------</span>
+<span class="b" style="color:#e5c07b">  [W]</span> main.glg:12 <span class="b" style="color:#56b6c2">--&gt;</span> Glossary `nusselt&#x27; has not been defined.
+<span class="d">--------------------------------------------------------------------------</span>
+<span class="b" style="color:#d79921">+--</span> <span class="b">[代码执行]</span> <span class="b" style="color:#d79921">---------------------------------------------------------------</span>
+<span class="b" style="color:#e5c07b">  [W]</span> main.pytxcode:7 <span class="b" style="color:#56b6c2">--&gt;</span> PythonTeX: 1 error, 0 warnings
+<span class="d">--------------------------------------------------------------------------</span>
+<span class="b" style="color:#d79921">+--</span> <span class="b">[图形/绘图]</span> <span class="b" style="color:#d79921">--------------------------------------------------------------</span>
+<span class="b" style="color:#e5c07b">  [W]</span> main.log:88 <span class="b" style="color:#56b6c2">--&gt;</span> File `figures/flow.png&#x27; not found.
+<span class="d">--------------------------------------------------------------------------</span>
+<span class="b" style="color:#d79921">+--</span> <span class="b">[外部工具]</span> <span class="b" style="color:#d79921">---------------------------------------------------------------</span>
+<span class="b" style="color:#e5c07b">  [W]</span> main.blg:21 <span class="b" style="color:#56b6c2">--&gt;</span> WARN - I didn&#x27;t find a database entry for &#x27;ashrae2017&#x27;
+<span class="d">--------------------------------------------------------------------------</span>
+<span class="b" style="color:#d79921">+--</span> <span class="b">[自定义解析]</span> <span class="b" style="color:#d79921">--------------------------------------------------------------</span>
+<span class="b" style="color:#e5c07b">  [W]</span> custom.log:5 <span class="b" style="color:#56b6c2">--&gt;</span> custom rule: unbalanced brace in \cmd{
+<span class="d">--------------------------------------------------------------------------</span>
+<span class="b" style="color:#d79921">+--</span> <span class="b">[一般编译]</span> <span class="b" style="color:#d79921">---------------------------------------------------------------</span>
+<span class="b" style="color:#e5c07b">  [W]</span> intro.tex:33 <span class="b" style="color:#56b6c2">--&gt;</span> Reference `sec:motivation&#x27; undefined.
+<span class="d">--------------------------------------------------------------------------</span>
+</pre></div><ul class="notes"><li>分类标题是 <code>+-- [标签] ---…</code> 树状线，和等级标题的 <code>====</code> 不是同一套字符语法。</li><li>每组都重复 74 列底边；组内只有 1 条时，框架行（2 行）比内容行（1 行）还多。</li><li><code>[一般编译]</code> 与 CLI 头的 <code>compile=</code> 指同一对象，却用了两套命名。</li></ul></div>
+<div class="case"><div class="case-head"><h3>条目行的四种边界</h3></div><p class="case-desc">第 1 条相对路径；第 2 条超长（100 列折行）；第 3 条在 cwd 之外，只保留 basename；第 4 条无文件信息，退化成 <code>:0</code>。</p><div class="term"><div class="bar"><span class="lights"><i></i><i></i><i></i></span><span class="cmd">$ print_summary() — 相对路径 / 长文本 / cwd 之外 / 空文件</span><span class="badge">STDOUT</span></div><pre class="body"><span class="b" style="color:#e06c75">================================== 错误汇总 ==================================</span>
+<span class="b" style="color:#d79921">+--</span> <span class="b">[一般编译]</span> <span class="b" style="color:#d79921">---------------------------------------------------------------</span>
+<span class="b" style="color:#e06c75">  [E]</span> chapters/intro.tex:42 <span class="b" style="color:#56b6c2">--&gt;</span> Undefined control sequence.
+<span class="b" style="color:#e06c75">  [E]</span> sections/03-results.tex:128 <span class="b" style="color:#56b6c2">--&gt;</span> LaTeX Warning: Reference `tab:phEx-performance-comparison&#x27; on
+page 12 undefined on input line 245; the label may live in an external document that was not
+included in this arara run.
+<span class="b" style="color:#e06c75">  [E]</span> article.cls:5 <span class="b" style="color:#56b6c2">--&gt;</span> Missing \begin{document}.
+<span class="b" style="color:#e06c75">  [E]</span> :0 <span class="b" style="color:#56b6c2">--&gt;</span> ==&gt; Fatal error occurred, no output PDF file produced!
+<span class="b" style="color:#e06c75">  [E]</span> chapters/讨论.tex:1 <span class="b" style="color:#56b6c2">--&gt;</span> Missing character: There is no 焓 (U+7118) in font &quot;Latin Modern
+Roman&quot;!
+<span class="d">--------------------------------------------------------------------------</span>
+</pre></div><ul class="notes"><li>长文本折行后仍从第 0 列续写（本图中第 2 条的 <code>the label may live...</code>）。</li><li>cwd 之外的文件只显示 <code>article.cls</code>，丢失目录；多条同名 cls 会无法区分。</li><li>空文件退化为 <code>:0 --&gt;</code>，冒号前什么都没有，像格式错误。</li><li><code>[E]</code> 与文本之间只有一个空格；同屏四条 ERROR 没有编号/分隔，长文本时难以定位切分。</li></ul></div>
+<div class="case"><div class="case-head"><h3>hint：三行结构与超长建议</h3></div><p class="case-desc">WARNING 组第 2 条是「缺字形」，触发 hint：<code>↳ 正文</code> + 7 空格命令。正文在 100 列内占 3 行。</p><div class="term"><div class="bar"><span class="lights"><i></i><i></i><i></i></span><span class="cmd">$ print_summary(show_hints=True)</span><span class="badge">STDOUT</span></div><pre class="body"><span class="b" style="color:#e5c07b">================================== 警告汇总 ==================================</span>
+<span class="b" style="color:#d79921">+--</span> <span class="b">[一般编译]</span> <span class="b" style="color:#d79921">---------------------------------------------------------------</span>
+<span class="b" style="color:#e5c07b">  [W]</span> scheme:1 <span class="b" style="color:#56b6c2">--&gt;</span> Class ctexart Warning: Redefining CJKfamily `\CJKrmdefault&#x27; (SimSun).
+<span class="b" style="color:#e5c07b">  [W]</span> scheme:1 <span class="b" style="color:#56b6c2">--&gt;</span> Missing character: There is no 中 (U+4E2D) in font &quot;name:Latin Modern
+Roman:mode=node;script=latn;language=dflt;jfm=zh_CN/{quanjiao}&quot;! (12 occurrences, 4 distinct glyphs:
+中, 文, 测, 试)
+<span class="d">      ↳ 字体 `Latin Modern Roman` 没有中文字形 `中`（U+4E2D）。分两步排查：① 若还在 </span>
+<span class="d">pdfLaTeX，中文不能交给默认拉丁字体，改用 XeLaTeX/LuaLaTeX + ctex（或 xeCJK）；② 已在 Xe/Lua + </span>
+<span class="d">ctex/xeCJK 时，症结是当前 CJK 字体不含该字：用 `\setCJKmainfont`/`\setCJKsansfont` </span>
+<span class="d">换含该字的中文字体，或补 FallBack 字体。xeCJK 可直接按字体文件名加载（如 </span>
+<span class="d">`\setCJKmainfont{ukai.ttc}`），不需要 NFSS 的 `\DeclareFontFamily`/`\DeclareFontShape`。</span>
+<span class="d" style="color:#56b6c2">       \usepackage{ctex} | XeLaTeX/LuaLaTeX lualatex_xecjk_missing_glyph.tex</span>
+<span class="d">--------------------------------------------------------------------------</span>
+</pre></div><ul class="notes"><li>hint 正文折行后也回到第 0 列（<code>字的中文字体...</code>），与条目的 2 空格完全脱节。</li><li>hint 无左右边界/底色，长 hint 会和下一条日志粘在一起。</li><li>建议正文把 <code>\setCJKmainfont</code> 这类命令放在反引号里，但与正文其余部分没有样式区别；命令行只是「7 个空格 + 文本」。</li><li>命令用 <code> | </code> 分隔多条候选，读者需要自己判断「先跑哪条」。</li></ul></div>
+<div class="case"><div class="case-head"><h3>参考文献面板：新增 / 移除 / 总计 / Top 引用</h3></div><p class="case-desc">四块内容依次追加在日志分组之后；这是 <code>run_pipeline(print_terminal=True)</code> 会打印、但 CLI 目前不会打印的部分。</p><div class="term"><div class="bar"><span class="lights"><i></i><i></i><i></i></span><span class="cmd">$ print_summary(ref_added_keys=…, ref_removed_keys=…, ref_key_counts=…)</span><span class="badge">STDOUT</span></div><pre class="body"><span class="b" style="color:#e5c07b">================================== 警告汇总 ==================================</span>
+<span class="b" style="color:#d79921">+--</span> <span class="b">[参考文献]</span> <span class="b" style="color:#d79921">---------------------------------------------------------------</span>
+<span class="b" style="color:#e5c07b">  [W]</span> main.blg:7 <span class="b" style="color:#56b6c2">--&gt;</span> I couldn&#x27;t find a database entry for &#x27;reynolds1883&#x27;
+<span class="d">--------------------------------------------------------------------------</span>
+<span class="b" style="color:#98c379">[+]</span> <span class="b">[参考文献] 新增 12:</span>
+  <span style="color:#56b6c2">ashrae2017</span><span class="d">, </span><span style="color:#56b6c2">bejan2013</span><span class="d">, </span><span style="color:#56b6c2">cengel2019</span><span class="d">, </span><span style="color:#56b6c2">gnielinski1976</span><span class="d">, </span><span style="color:#56b6c2">kakaç2003</span><span class="d">, </span>
+  <span style="color:#56b6c2">lamport1994</span><span class="d">, </span><span style="color:#56b6c2">manglik1993</span><span class="d">, </span><span style="color:#56b6c2">shah1978</span><span class="d">, </span>
+  <span style="color:#56b6c2">very-long-key-name-for-a-journal-article-2024</span><span class="d">, </span><span style="color:#56b6c2">wang2021</span><span class="d">, </span><span style="color:#56b6c2">webb1994</span><span class="d">, </span>
+  <span style="color:#56b6c2">xuan2019</span>
+<span class="b" style="color:#e06c75">[-]</span> <span class="b">[参考文献] 移除 2:</span>
+  <span style="color:#56b6c2">deprecated2020</span><span class="d">, </span><span style="color:#56b6c2">old2019</span>
+<span class="b">  [参考文献] </span>共 87 篇 ，未变动 73 篇
+<span class="d">--------------------------------------------------------------------------</span>
+<span class="b" style="color:#c678dd">(*)</span> <span class="b">[参考文献] 引用 Top 5:</span>
+    (1) <span style="color:#56b6c2">knuth1984                               </span>  <span class="b" style="color:#c678dd"> 42</span> 次引用
+    (2) <span style="color:#56b6c2">lamport1994                             </span>  <span class="b" style="color:#c678dd"> 31</span> 次引用
+    (3) <span style="color:#56b6c2">very-long-key-name-for-a-journal-arti...</span>  <span class="b" style="color:#c678dd"> 17</span> 次引用
+    (4) <span style="color:#56b6c2">shah1978                                </span>  <span class="b" style="color:#c678dd">  9</span> 次引用
+    (5) <span style="color:#56b6c2">bejan2013                               </span>  <span class="b" style="color:#c678dd">  4</span> 次引用
+<span class="d">--------------------------------------------------------------------------</span>
+</pre></div><ul class="notes"><li>新增/移除用 <code>[+]/[-]</code>，Top 引用用 <code>(*)</code>，与主日志的 <code>[E]</code> 方括号、<code>+--</code> 树线是三套符号。</li><li>Top 引用固定 key 列宽 40，超长 key 截断为 <code>...</code>；计数右对齐 3 列。</li><li>「共 87 篇 ，未变动 73 篇」在「篇」和中文逗号之间多一个空格（<code>pian_space</code> 无条件补空格）。</li><li>英文模式会把 <code>篇</code> 翻成空串、<code>,</code> 前又不补空格，见后文英文参考文献。</li><li>新增 key 的换行只按 72 列硬切，没有与上方条目对齐的缩进层级。</li></ul></div>
+<div class="case"><div class="case-head"><h3>英文模式的参考文献面板（<code>篇</code> → 空串）</h3></div><p class="case-desc">总计行由「共 / 未变动 / 篇 / ，」逐词翻译拼成。</p><div class="term"><div class="bar"><span class="lights"><i></i><i></i><i></i></span><span class="cmd">$ print_summary(language=&#x27;en&#x27;, ref_total=…)</span><span class="badge">STDOUT</span></div><pre class="body"><span class="b" style="color:#e5c07b">============================ Warning Summary =============================</span>
+<span class="b" style="color:#d79921">+--</span> <span class="b">[Bibliography]</span> <span class="b" style="color:#d79921">-------------------------------------------------------</span>
+<span class="b" style="color:#e5c07b">  [W]</span> main.blg:7 <span class="b" style="color:#56b6c2">--&gt;</span> I couldn&#x27;t find a database entry for &#x27;reynolds1883&#x27;
+<span class="d">--------------------------------------------------------------------------</span>
+<span class="b" style="color:#98c379">[+]</span> <span class="b">[Bibliography] Added 3:</span>
+  <span style="color:#56b6c2">ashrae2017</span><span class="d">, </span><span style="color:#56b6c2">bejan2013</span><span class="d">, </span><span style="color:#56b6c2">gnielinski1976</span>
+<span class="b" style="color:#e06c75">[-]</span> <span class="b">[Bibliography] Removed 1:</span>
+  <span style="color:#56b6c2">old2019</span>
+<span class="b">  [Bibliography] </span>Total 12 ,Unchanged 8
+<span class="d">--------------------------------------------------------------------------</span>
+<span class="b" style="color:#c678dd">(*)</span> <span class="b">[Bibliography] Top Cited 5:</span>
+    (1) <span style="color:#56b6c2">knuth1984                               </span>  <span class="b" style="color:#c678dd"> 42</span> citations
+    (2) <span style="color:#56b6c2">lamport1994                             </span>  <span class="b" style="color:#c678dd"> 31</span> citations
+<span class="d">--------------------------------------------------------------------------</span>
+</pre></div><ul class="notes"><li><code>篇</code> 的英文映射为空串，<code>Total 12 ,Unchanged 8 </code> 同时出现「逗号前多空格 + 逗号后缺空格 + 行尾空格」。</li><li><code>(*)</code> 依然是星号，与英文标签 <code>Top Cited</code> 并存。</li></ul></div>
+</section>
+<section id="sec-edge"><div class="sec-head"><span class="sec-num">04</span><h2>异常、空态与边界</h2></div><p class="sec-intro">空结果、坏输入、解析失败、顶层异常、dry-run。</p>
+<div class="case"><div class="case-head"><h3>无解析结果</h3></div><p class="case-desc">空项目时唯一一行提示；全角括号，无颜色、无图标。</p><div class="term"><div class="bar"><span class="lights"><i></i><i></i><i></i></span><span class="cmd">$ pytexlogs check（空目录）</span><span class="badge">STDERR</span></div><pre class="body">（无解析结果。请传入 .log / .blg 或 aux 目录）</pre></div><ul class="notes"><li>没有提示「当前目录没有日志」，也没有下一步命令建议。</li></ul></div>
+<div class="case"><div class="case-head"><h3>基线报告不存在</h3></div><p class="case-desc"><code>--baseline</code> 路径不存在时早退，避免抛堆栈。</p><div class="term"><div class="bar"><span class="lights"><i></i><i></i><i></i></span><span class="cmd">$ pytexlogs check --baseline missing.json</span><span class="badge">STDERR</span></div><pre class="body">基线报告不存在：missing.json（先用 --output 导出一次 JSON 报告）</pre></div><ul class="notes"><li>整句中文 + 英文参数名混排，<code>--output</code> 未加反引号。</li></ul></div>
+<div class="case"><div class="case-head"><h3>传入路径不存在 / 不是文件也不是目录</h3></div><p class="case-desc">先打一条小写 <code>warning:</code>，再打「无解析结果」；两行都走 stderr。</p><div class="term"><div class="bar"><span class="lights"><i></i><i></i><i></i></span><span class="cmd">$ pytexlogs check not_a_file.tex</span><span class="badge">STDERR</span></div><pre class="body">warning: not_a_file.tex 不是文件也不是目录，跳过
+（无解析结果。请传入 .log / .blg 或 aux 目录）</pre></div><ul class="notes"><li><code>warning:</code> 是小写英文前缀，和 logging 的 <code>WARNING:</code>、摘要里的 <code>[W]</code> 是三套写法。</li><li>跳过输入后仍然继续，最终以「无解析结果」收尾，退出码 0——CI 里会当成成功。</li><li>拼错的子命令（<code>pytexlogs nonsense</code>）也会被 <code>_normalize_argv</code> 当成路径走同一条分支，不报 usage。</li></ul></div>
+<div class="case"><div class="case-head"><h3>参数错误：argparse 直接退出</h3></div><p class="case-desc">argparse 自己打印子命令 usage + 一行 <code>prog: error: …</code>，退出码 2；不经过任何 PyTeXLogs 样式层。</p><div class="term"><div class="bar"><span class="lights"><i></i><i></i><i></i></span><span class="cmd">$ pytexlogs check &lt;log&gt; --severity bogus</span><span class="badge">STDERR</span></div><pre class="body">usage: pytexlogs check [-h] [--lang {en,zh}] [--format {text,json,csv,sarif}]
+                       [--output OUTPUT]
+                       [--severity {error,warning,info,all,error+warning}]
+                       [--root-file ROOT_FILE] [--jobname JOBNAME] [--open]
+                       [--open-all] [--editor EDITOR] [--dry-run]
+                       [--max-entries MAX_ENTRIES] [--no-hints]
+                       [--baseline BASELINE] [--recursive]
+                       [--fail-on {error,warning}]
+                       [paths ...]
+pytexlogs check: error: argument --severity: invalid choice: &#x27;bogus&#x27; (choose from &#x27;error&#x27;, &#x27;warning&#x27;, &#x27;info&#x27;, &#x27;all&#x27;, &#x27;error+warning&#x27;)</pre></div><ul class="notes"><li>这段 usage 与主帮助页的 usage 不同（子命令版只列本地参数），宽度也按 80 列折行。</li><li><code>error: argument --severity: invalid choice</code> 全英文，与中文界面混排。</li><li><code>--fail-on</code> 只出现在 check 子命令这边，主 <code>--help</code> 完全不提。</li></ul></div>
+<div class="case"><div class="case-head"><h3>解析失败块（构造示例）</h3></div><p class="case-desc"><code>parse_exception</code> 非空时保留结果并追加该块；文案取自 <code>cli/main.py::_MSG</code>，此处为构造数据。</p><div class="term"><div class="bar"><span class="lights"><i></i><i></i><i></i></span><span class="cmd">$ pytexlogs check &lt;损坏的项目&gt;</span><span class="badge">STDOUT</span></div><pre class="body">=== 解析失败 ===
+biber: ValueError: 无法读取 main.bcf（编码不可识别）
+latex: OSError: main.log 在第 812 行被截断
+存在解析失败，见上方解析失败列表</pre></div><ul class="notes"><li><code>=== 解析失败 ===</code> 与摘要的 <code>====</code> 横幅是又一门「等号语言」，且只有 3 个 <code>=</code>。</li><li>失败行 <code>tool: Type: message</code> 无缩进、无颜色。</li><li>最后一句「存在解析失败，见上方解析失败列表」重复了标题信息。</li></ul></div>
+<div class="case"><div class="case-head"><h3>顶层异常（构造示例）</h3></div><p class="case-desc">logging 先打 <code>ERROR: CLI 异常</code> + 堆栈，再打一行中文兜底；两段都走 stderr。</p><div class="term"><div class="bar"><span class="lights"><i></i><i></i><i></i></span><span class="cmd">$ pytexlogs check &lt;触发异常的输入&gt;</span><span class="badge">STDERR</span></div><pre class="body">ERROR: CLI 异常
+Traceback (most recent call last):
+  File &quot;&lt;venv&gt;\Lib\site-packages\pytexlogs\cli\main.py&quot;, line 501, in main
+    raise ValueError(&quot;demo&quot;)
+ValueError: demo
+pytexlogs 执行失败：ValueError: demo（设置 PYTEXLOGS_DEBUG=1 可查看堆栈）</pre></div><ul class="notes"><li>堆栈前缀 <code>ERROR:</code> 与中文兜底句重复表达同一件事。</li><li><code>PYTEXLOGS_DEBUG=1</code> 是环境变量，却没有在帮助页出现。</li><li>异常信息里含绝对路径，长路径会整行溢出。</li></ul></div>
+<div class="case"><div class="case-head"><h3>--open --dry-run</h3></div><p class="case-desc">摘要之后另起一行 <code>[dry-run open] $ &lt;命令&gt;</code>，走 stderr（此处与 stdout 合并展示）。</p><div class="term"><div class="bar"><span class="lights"><i></i><i></i><i></i></span><span class="cmd">$ pytexlogs check &lt;log&gt; --open --dry-run</span><span class="badge">STDOUT</span></div><pre class="body">[dry-run open] $ C:\Applications\Scoop\apps\vscode\current\bin\code.CMD --goto \usr\local\texlive\2024\texmf-dist\tex\latex\base\article.cls:5</pre></div><ul class="notes"><li><code>[dry-run open]</code> 为英文方括号标签，和摘要的 <code>[E]</code> 同级但风格不同。</li><li>路径来自日志内容 <code>\usr\local\...</code>，在 Windows 上被原样拼进命令（编辑器跳转的已知边界）。</li></ul></div>
+</section>
+<section id="sec-mode"><div class="sec-head"><span class="sec-num">05</span><h2>输出模式与退化路径</h2></div><p class="sec-intro">logger 通道、无 rich、窄终端。</p>
+<div class="case"><div class="case-head"><h3>use_logger=True：日志通道输出</h3></div><p class="case-desc">每一行都带 <code>LEVELNAME: </code> 前缀；INFO 组因根 logger 默认 WARNING 而不出现。</p><div class="term"><div class="bar"><span class="lights"><i></i><i></i><i></i></span><span class="cmd">$ show_log_entries(..., use_logger=True)</span><span class="badge">STDOUT</span></div><pre class="body">ERROR: ================================== 错误汇总 ==================================
+ERROR: +-- [一般编译] ---------------------------------------------------------------
+ERROR:   [E] main.tex:42 --&gt; Undefined control sequence.
+ERROR: --------------------------------------------------------------------------
+WARNING: ================================== 警告汇总 ==================================
+WARNING: +-- [一般编译] ---------------------------------------------------------------
+WARNING:   [W] main.tex:88 --&gt; Reference `sec:method&#x27; undefined.
+WARNING: --------------------------------------------------------------------------</pre></div><ul class="notes"><li>横幅的 74 列被 7 字符前缀撑到 81 列，任何按 74 列做的对齐都失效。</li><li>ERROR 组的条目用 <code>ERROR:</code>，WARNING 组用 <code>WARNING:</code>，同一份摘要被拆成两种告警级别。</li><li>INFO 组整组静默——调用方以为打印了全部等级，实际只到 WARNING。</li></ul></div>
+<div class="case"><div class="case-head"><h3>窄终端（60 列）：固定 74 列的直接后果</h3></div><p class="case-desc">同一个 <code>SUMMARY_TOTAL_LEN=74</code> 在 60 列终端上溢出 14 列；rich 折行后标题被切成两行。</p><div class="term"><div class="bar"><span class="lights"><i></i><i></i><i></i></span><span class="cmd">$ print_summary() · Console(width=60)</span><span class="badge">STDOUT</span></div><pre class="body"><span class="b" style="color:#e06c75">================================== 错误汇总 </span>
+<span class="b" style="color:#e06c75">==================================</span>
+<span class="b" style="color:#d79921">+--</span> <span class="b">[一般编译]</span>
+<span class="b" style="color:#d79921">------------------------------------------------------------</span>
+<span class="b" style="color:#d79921">---</span>
+<span class="b" style="color:#e06c75">  [E]</span> chapters/intro.tex:42 <span class="b" style="color:#56b6c2">--&gt;</span> Undefined control sequence.
+<span class="b" style="color:#e06c75">  [E]</span> sections/03-results.tex:128 <span class="b" style="color:#56b6c2">--&gt;</span> LaTeX Warning:
+Reference `tab:phEx-performance-comparison&#x27; on page 12
+undefined on input line 245; the label may live in an
+external document that was not included in this arara run.
+<span class="b" style="color:#e06c75">  [E]</span> article.cls:5 <span class="b" style="color:#56b6c2">--&gt;</span> Missing \begin{document}.
+<span class="b" style="color:#e06c75">  [E]</span> :0 <span class="b" style="color:#56b6c2">--&gt;</span> ==&gt; Fatal error occurred, no output PDF file
+produced!
+<span class="b" style="color:#e06c75">  [E]</span> chapters/讨论.tex:1 <span class="b" style="color:#56b6c2">--&gt;</span> Missing character: There is no
+焓 (U+7118) in font &quot;Latin Modern Roman&quot;!
+<span class="d">------------------------------------------------------------</span>
+<span class="d">--------------</span>
+</pre></div><ul class="notes"><li>等级横幅 <code>====</code> 折成两行，第二行只剩右半截 <code>====</code>，失去居中意义。</li><li>分类标题的 74 个 <code>-</code> 同样折行；续行没有任何标记。</li><li>条目长文本继续从第 0 列续写。</li></ul></div>
+<div class="case"><div class="case-head"><h3>无 rich（fallback）：纯文本桩</h3></div><p class="case-desc"><code>_FallbackConsole</code> 直接 <code>print</code> 已构造的 plain 文本：布局与彩色版逐字相同，只是没有颜色/加粗。</p><div class="term"><div class="bar"><span class="lights"><i></i><i></i><i></i></span><span class="cmd">$ print_summary(use_logger=False) · rich 未安装</span><span class="badge">STDOUT</span></div><pre class="body">================================== 错误汇总 ==================================
++-- [一般编译] ---------------------------------------------------------------
+  [E] article.cls:5 --&gt; Undefined control sequence.
+      ↳ 未定义命令 `\foobar`：检查拼写/大小写；若是宏包提供的命令，确认对应 \usepackage 已加载。
+       grep -R &quot;\\foobar&quot; *.tex | tlmgr search --global --file foobar.sty
+  [E] article.cls:5 --&gt; Emergency stop.
+      ↳ 编译被致命错误中断：先修复日志里 Emergency stop 上方的第一条错误。
+  [E] article.cls:1 --&gt; ==&gt; Fatal error occurred, no output PDF file produced!
+      ↳ 编译被致命错误中断：先修复日志里 Emergency stop 上方的第一条错误。
+--------------------------------------------------------------------------
+</pre></div><ul class="notes"><li>纯文本下，<code>[E]</code> 与 <code>[一般编译]</code> 这类方括号标签仍然保留，可读性尚可。</li><li>dim 组（T/F/G/P）在纯文本下与普通文本完全同权，层级信息只剩「标题行」。</li></ul></div>
+</section>
+<section id="sec-obs"><div class="sec-head"><span class="sec-num">06</span><h2>观察与调整方向</h2></div>
+<p class="sec-intro">以下不是要一次全改，而是把可独立调整的零件列出来，便于挑方向。左边是现状的结构性问题，右边是可选的美化路线。</p>
+<div class="two">
+<div class="card"><h3>现状观察（按影响排序）</h3><ul><li><strong>固定 74 列，不跟终端宽度</strong> —— <code>SUMMARY_TOTAL_LEN = 74</code>（<code>display/formatter.py:81</code>）。60 列会溢出折行，120 列右侧空一大截；摘要头、等级横幅、分类底边全部绑死这个值。</li><li><strong>折行没有悬挂缩进</strong> —— rich 在 markup 上直接折行，续行回到第 0 列（80 列日志里 <code>on input line 49.</code> 顶格）。条目、hint、分类标题都受影响。</li><li><strong>框架字符四套并存</strong> —— <code>=</code>（等级）、<code>+--</code>/<code>-</code>（分类）、<code>↳</code>（建议）、<code>…</code>（折叠）、<code>[+]</code>/<code>[-]</code>（文献）、<code>(*)</code>（Top 引用）；ASCII 与 Unicode 混排，没有统一语法。</li><li><strong>层级只有两级，且框架比内容重</strong> —— 每个等级一条 74 列横幅；每个分类再一条 74 列标题 + 74 列底边。单条 warning 也要 4 行框架。</li><li><strong>颜色 8+ 种，dim 组对比度低</strong> —— red/yellow/blue + dim/dim magenta/dim cyan/dim green + <code>#d79921</code> 金 + cyan 箭头；没有图例，也没有 <code>--no-color</code> 开关（只有 rich 识别的 <code>NO_COLOR</code> 环境变量）。</li><li><strong>符号与语言不统一</strong> —— <code>[E]/[W]/[I]/[T]/[F]/[G]/[P]</code> 是英文缩写，标题却是中文；<code>=== PyTeXLogs Summary ===</code>、<code>By category:</code>、<code>warning:</code> 在中文模式下照打。</li><li><strong>计数与归属缺失</strong> —— 只有 CLI 头 <code>compile=3</code>；分组标题不带条数，等级横幅不带总数；用户要自己数。<code>compile</code> 是内部键，不是显示名。</li><li><strong>hint 与条目同一平面</strong> —— 6/7 空格缩进、无边框/底色；长建议会顶格折行，并和下一条日志粘连。</li><li><strong>错误上下文没有进入摘要</strong> —— <code>LogEntry.error_pos_text</code>（<code>?</code> 上下文 / <code>l.5 \foobar</code>）被模型保存，但 <code>_format_entry</code> 只输出 <code>file:line --&gt; text</code>；<code>importance</code>、<code>stats</code> 同样不进终端。</li><li><strong>参考文献面板是独立风格</strong> —— 只用 <code>[+]/[-]</code>、青色 key、固定 40 列 key 宽、<code>(*)</code> 排行；和主日志块没有共享标题/分隔线语言。</li><li><strong>异常/空态无样式</strong> —— <code>（无解析结果…）</code>、<code>warning: …</code>、<code>pytexlogs 执行失败：…</code> 全是裸文本；stderr 与 stdout 的视觉完全一样。</li><li><strong>帮助页是 argparse 原生英文骨架</strong> —— <code>usage:</code>/<code>positional arguments:</code>/<code>options:</code> 英文，描述中文；80 列折行；无分组、无示例小节、无颜色。</li><li><strong>两套渲染路径不一致</strong> —— CLI 走 <code>use_logger=False</code> + 字符串拼接；库默认 <code>use_logger=True</code>，会给每一行加 <code>ERROR:/WARNING:</code> 前缀，且 INFO 组默认被吞。</li></ul></div>
+<div class="card"><h3>可选调整方向</h3><ul><li><strong>宽度自适应</strong> —— 把 <code>SUMMARY_TOTAL_LEN</code> 换成按 <code>Console.width</code> 计算的 <code>min(max(width - 2, 60), 100)</code>；同时给条目/建议加 hanging indent（rich <code>Text</code> + <code>padding</code>，或先按宽度预折行再补缩进）。</li><li><strong>统一框架语法</strong> —— 二选一：① 轻量 ASCII：等级用 <code>== 错误 · 3 ==</code>、分类用 <code>-- 一般编译 · 3 --</code>；② box-drawing：<code>╭─ 错误 (3) ─╮ / ├─ 一般编译 / │ [E] … / ╰─</code>。不要再混 <code>+--</code>、<code>====</code>、<code>(*)</code>。</li><li><strong>计数上标题</strong> —— 等级横幅带总数（<code>错误 · 3</code>），分类标题带条数（<code>一般编译 · 3</code>），折叠行改为 <code>└─ 其余 346 条（--format json）</code>，并放到组末而不是条目流里。</li><li><strong>颜色收敛 + 降级</strong> —— 主色只留 red/yellow/blue 三档语义 + 一个 accent；T/F/G/P 合并为同一 muted 色，用 glyph（<code>[T]</code>/<code>[F]</code>）而不是四种 dim 色相区分；补显式 <code>--no-color</code>（内部把 <code>Console.no_color</code> 打开）。</li><li><strong>hint 面板化</strong> —— 建议改成带左轨的块：<code>│ ↳ …</code>，命令行 <code>│ $ …</code>；长建议可折叠到 <code>--hints=full</code>，默认只留一行。多条命令按「先跑哪条」编号。</li><li><strong>文案统一 i18n</strong> —— 把 <code>=== PyTeXLogs Summary ===</code>、<code>By category:</code>、<code>By parser:</code>、<code>warning:</code>、<code>[dry-run open]</code>、<code>篇</code> 全部搬进 <code>_MSG</code>；中文模式不出现英文骨架，英文模式处理单复数与尾随空格。</li><li><strong>统计头重做</strong> —— <code>PyTeXLogs · main.tex · 3 errors / 2 warnings</code> 一行；category 用显示标签（一般编译）并对齐成两列表格，而不是 <code>compile=3</code>。</li><li><strong>空态/异常统一</strong> —— 统一前缀（<code>✗</code> / <code>!</code> / <code>…</code>）+ 一行原因 + 一行下一步命令；stderr 用颜色时也遵守 <code>NO_COLOR</code>；路径不存在时退出码不要 0。</li><li><strong>帮助页</strong> —— <code>argparse</code> 自定义 <code>formatter_class</code> + 中文分组（常用/输出/过滤/编辑器）；示例单独一节；可加 <code>--style</code>/<code>--theme</code> 的说明。</li><li><strong>参考文献面板</strong> —— 并入主框架：<code>参考文献 · +12 / -3 / 87</code>；新增/移除用两列 diff；Top 引用用 <code>█</code> 比例条或右对齐条形，和条目共享缩进。</li><li><strong>错误上下文</strong> —— 把 <code>error_pos_text</code> 作为条目的第二行（<code>  ⌐ l.5 \foobar</code>）或折叠子行，至少在 ERROR 上显示；<code>importance</code> 可做分组排序而非丢弃。</li></ul></div>
+</div>
+<p class="sec-intro" style="margin-top:26px">覆盖清单（本轮实际触发的分支）：</p>
+<div class="coverage"><div class="k">等级标题</div><div>error / warning / info / typesetting / font / graphic / page</div><div class="k">分类标题</div><div>bibliography / index / glossary / code / graphics / external / custom / compile</div><div class="k">条目行</div><div>相对路径、cwd 外路径、空文件、超长文本、CJK、hint（含命令/无命令）</div><div class="k">参考文献</div><div>新增、移除、总计、Top 引用、长 key 截断、英文模式</div><div class="k">模式</div><div>默认、--severity all/error、--max-entries、--lang en、use_logger、无 rich、60/80/100 列</div><div class="k">异常</div><div>无结果、无新增、基线缺失、路径不存在、解析失败、顶层异常、dry-run</div></div>
+<div class="footer">生成方式：直接调用 <code>pytexlogs.display.print_summary</code>，以 <code>Console(force_terminal=True, record=True, width=60/80/100)</code> 捕获真实 ANSI；CLI 文案取自实际命令输出（解析失败与顶层异常两块为按 <code>_MSG</code> 构造的示例）。源码位置：<code>display/formatter.py</code>、<code>display/printer.py</code>、<code>cli/main.py</code>。</div>
+</section>
+</div></body></html>

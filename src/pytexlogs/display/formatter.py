@@ -2,6 +2,7 @@
 
 import logging
 import re as _re
+import unicodedata
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -53,6 +54,7 @@ _BuiltinDictTranslations: dict[str, str] = {
     "外部工具": "External Tools",
     "自定义解析": "Custom Parsing",
     "一般编译": "Compilation",
+    "未知文件": "unknown file",
     "高": "High",
     "中": "Medium",
     "低": "Low",
@@ -65,6 +67,8 @@ _BuiltinDictTranslations: dict[str, str] = {
     "篇": "",
     "，": ",",
     "。": ".",
+    "… 还有 {n} 条（--max-entries 0 查看全部）": "… and {n} more entries (--max-entries 0 for all)",
+    "… 还有 {n} 条（--max-entries 0）": "… and {n} more entries (--max-entries 0)",
 }
 
 
@@ -78,7 +82,141 @@ def _t(s: str) -> str:
     return s
 
 
+# 终端摘要版式：默认宽度保持 74 列，但允许调用方（如 PyTeXMK）按自身控制台
+# 宽度覆盖；最小宽度用于防止悬挂缩进和路径省略被压坏。
 SUMMARY_TOTAL_LEN = 74
+MIN_SUMMARY_WIDTH = 40
+
+# 版式缩进：条目 4 列，hint 8 列，可执行命令 10 列。
+ENTRY_INDENT = 4
+HINT_INDENT = 8
+COMMAND_INDENT = 10
+MIN_ENTRY_TEXT_WIDTH = 12
+
+
+def _char_cells(ch: str) -> int:
+    """单个字符的终端显示列数；全角/宽字符按 2 列，组合字符按 0 列。"""
+    if ch == "\t":
+        return 4
+    if unicodedata.combining(ch):
+        return 0
+    return 2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1
+
+
+def display_width(text: str) -> int:
+    """按终端显示列数测量字符串，用于 CJK 标题和悬挂缩进对齐。"""
+    return sum(_char_cells(ch) for ch in text)
+
+
+def _measure(text: str, text_len_fn: Callable[[str], int] | None = None) -> int:
+    return text_len_fn(text) if text_len_fn is not None else display_width(text)
+
+
+def resolve_summary_width(width: int | None) -> int:
+    """把外部传入的宽度收敛到可用范围；None 表示沿用固定默认宽度。"""
+    if width is None:
+        return SUMMARY_TOTAL_LEN
+    try:
+        value = int(width)
+    except TypeError, ValueError:
+        return SUMMARY_TOTAL_LEN
+    return max(MIN_SUMMARY_WIDTH, value)
+
+
+def _truncate_to(text: str, width: int, text_len_fn: Callable[[str], int] | None = None) -> str:
+    """按显示列截断字符串，保证截断结果不超过 width。"""
+    if width <= 0:
+        return ""
+    out: list[str] = []
+    used = 0
+    for ch in text:
+        cells = _char_cells(ch) if text_len_fn is None else text_len_fn(ch)
+        if used + cells > width:
+            break
+        out.append(ch)
+        used += cells
+    return "".join(out)
+
+
+def _shorten_middle(text: str, width: int, text_len_fn: Callable[[str], int] | None = None) -> str:
+    """路径/位置超宽时优先保留末尾的 ``:line``，中间用省略号压缩。"""
+    if width <= 0:
+        return ""
+    if _measure(text, text_len_fn) <= width:
+        return text
+
+    head, sep, tail = text.rpartition(":")
+    if sep and head and _measure(tail, text_len_fn) + 2 < width:
+        suffix = ":" + tail
+        budget = width - _measure(suffix, text_len_fn) - 1
+        if budget > 3:
+            truncated = _truncate_to(head, budget, text_len_fn).rstrip("/\\")
+            if truncated:
+                return truncated + "…" + suffix
+    return _truncate_to(text, width - 1, text_len_fn).rstrip() + "…"
+
+
+_CLOSING_PUNCT = "，。；：、！？）》」』）】”’"
+
+
+def _break_points(text: str) -> tuple[int | None, int | None]:
+    """返回 (最后一个空格断点, 最后一个 CJK 断点)，两者均为字符下标。"""
+    space_pos: int | None = None
+    cjk_pos: int | None = None
+    last_index = len(text) - 1
+    for index, ch in enumerate(text):
+        if ch == " ":
+            space_pos = index + 1
+        elif _char_cells(ch) == 2:
+            # 不在中文收尾标点前断行，避免下一行以「，。；：」开头。
+            if index == last_index or text[index + 1] not in _CLOSING_PUNCT:
+                cjk_pos = index + 1
+    return space_pos, cjk_pos
+
+
+def _wrap_text(
+    text: str,
+    width: int,
+    text_len_fn: Callable[[str], int] | None = None,
+) -> list[str]:
+    """按终端显示列折行，保留空格/CJK 断点，超长拉丁 token 强制断行。"""
+    text = " ".join(str(text).split())
+    if width <= 0:
+        return [text]
+    if not text:
+        return [""]
+
+    lines: list[str] = []
+    current = ""
+    current_width = 0
+
+    for ch in text:
+        ch_width = _char_cells(ch) if text_len_fn is None else text_len_fn(ch)
+        if current and current_width + ch_width > width:
+            space_break, cjk_break = _break_points(current)
+            break_at = space_break if space_break is not None and 0 < space_break <= len(current) else cjk_break
+            if break_at is not None and 0 < break_at < len(current) + 1:
+                head = current[:break_at].rstrip()
+                tail = current[break_at:].lstrip()
+                if head:
+                    lines.append(head)
+                    current = tail
+                    current_width = _measure(current, text_len_fn)
+                else:
+                    lines.append(current.rstrip())
+                    current = ""
+                    current_width = 0
+            else:
+                lines.append(current.rstrip())
+                current = ""
+                current_width = 0
+        current += ch
+        current_width += ch_width
+
+    if current.strip() or (not lines and current):
+        lines.append(current.rstrip())
+    return lines or [""]
+
 
 CATEGORY_ORDER = [
     "bibliography",
@@ -111,64 +249,65 @@ IMPORTANCE_LABEL: dict[str, str] = {
 
 @dataclass(frozen=True, slots=True)
 class _LevelDisplay:
-    """一个等级的展示元数据：标题、符号、分隔色与日志通道。"""
+    """一个等级的展示元数据：标题、符号、标题色与日志通道。"""
 
     title: str
     symbol_markup: str
     symbol_plain: str
-    sep_style: str
+    title_style: str
     logger_level: str
 
 
-#: 等级展示的单一事实源；新增等级只改这里，标题/符号/分隔线/日志通道自动派生。
+#: 等级展示的单一事实源；error/warning/info 保留红黄蓝，其余统一 dim 灰，
+#: 避免同一段输出里出现四种弱对比色相。
 _LEVEL_DISPLAY: dict[str, _LevelDisplay] = {
     "error": _LevelDisplay(
         title="错误汇总",
-        symbol_markup="[bold red]  [E][/]",
-        symbol_plain="  [E]",
-        sep_style="bold red",
+        symbol_markup="[bold red][E][/]",
+        symbol_plain="[E]",
+        title_style="bold red",
         logger_level="error",
     ),
     "warning": _LevelDisplay(
         title="警告汇总",
-        symbol_markup="[bold yellow]  [W][/]",
-        symbol_plain="  [W]",
-        sep_style="bold yellow",
+        symbol_markup="[bold yellow][W][/]",
+        symbol_plain="[W]",
+        title_style="bold yellow",
         logger_level="warning",
     ),
     "info": _LevelDisplay(
         title="提示汇总",
-        symbol_markup="[bold blue]  [I][/]",
-        symbol_plain="  [I]",
-        sep_style="bold blue",
+        symbol_markup="[bold blue][I][/]",
+        symbol_plain="[I]",
+        title_style="bold blue",
         logger_level="info",
     ),
     "typesetting": _LevelDisplay(
         title="排版提示汇总",
-        symbol_markup="[dim]  [T][/]",
-        symbol_plain="  [T]",
-        sep_style="dim",
+        symbol_markup="[dim][T][/]",
+        symbol_plain="[T]",
+        title_style="dim",
         logger_level="info",
     ),
     "font": _LevelDisplay(
         title="字体提示汇总",
-        symbol_markup="[dim magenta]  [F][/]",
-        symbol_plain="  [F]",
-        sep_style="dim magenta",
+        symbol_markup="[dim][F][/]",
+        symbol_plain="[F]",
+        title_style="dim",
         logger_level="info",
     ),
     "graphic": _LevelDisplay(
         title="图形提示汇总",
-        symbol_markup="[dim cyan]  [G][/]",
-        symbol_plain="  [G]",
-        sep_style="dim cyan",
+        symbol_markup="[dim][G][/]",
+        symbol_plain="[G]",
+        title_style="dim",
         logger_level="info",
     ),
     "page": _LevelDisplay(
         title="页面提示汇总",
-        symbol_markup="[dim green]  [P][/]",
-        symbol_plain="  [P]",
-        sep_style="dim green",
+        symbol_markup="[dim][P][/]",
+        symbol_plain="[P]",
+        title_style="dim",
         logger_level="info",
     ),
 }
@@ -201,17 +340,18 @@ def _group_by(
     return result
 
 
-def _format_separator(title: str, style: str, text_len_fn: Callable[[str], int] | None = None) -> str:
-    """返回单行居中的 rich markup 字符串，总宽 SUMMARY_TOTAL_LEN，左右 === 填充。"""
-    _len = text_len_fn or len
-    total_width = SUMMARY_TOTAL_LEN
-    title_plain = title
-    padding_size = total_width - _len(title_plain) - 2
-    left_len = padding_size // 2
-    right_len = padding_size - left_len
-    left_sep = "=" * left_len
-    right_sep = "=" * right_len
-    return f"[{style}]{left_sep} {title_plain} {right_sep}[/{style}]"
+def _format_title_rule(
+    title_plain: str,
+    width: int,
+    style: str,
+    text_len_fn: Callable[[str], int] | None = None,
+) -> tuple[str, str]:
+    """返回 ``(markup, plain)``：沿用旧版的 ``==== 标题 ====`` 居中横幅。"""
+    padding = width - _measure(title_plain, text_len_fn) - 2
+    left_len = max(0, padding // 2)
+    right_len = max(0, padding - left_len)
+    plain = f"{'=' * left_len} {title_plain} {'=' * right_len}"
+    return f"[{style}]{_markup_escape(plain)}[/]", plain
 
 
 @lru_cache(maxsize=4096)
@@ -231,12 +371,101 @@ def _display_path(file_part: str, cwd: str) -> str:
 
 
 def _format_entry(entry: LogEntry, cwd: str | None = None) -> str:
-    """返回纯字符串（不含 ANSI/rich）：file:line --> text。
-
-    ``cwd`` 可由批量调用方传入，避免每条 entry 都重复 ``Path.cwd()``。
-    """
+    """返回纯字符串（不含 ANSI/rich）：file:line --> text。"""
     file_part = _display_path(entry.file or "", cwd or str(Path.cwd()))
     return f"{file_part}:{entry.line} --> {entry.text}"
+
+
+_ESCAPE_FN: Callable[[str], str] | None = None
+
+
+def _markup_escape(text: str) -> str:
+    """转义日志正文里的 ``[...]``，避免被 rich 当成样式标签。"""
+    global _ESCAPE_FN
+    if _ESCAPE_FN is None:
+        try:
+            from rich.markup import escape
+        except Exception:
+            _ESCAPE_FN = lambda value: value  # noqa: E731
+        else:
+            _ESCAPE_FN = escape
+    return _ESCAPE_FN(text)
+
+
+def _format_entry_lines(
+    entry: LogEntry,
+    cwd: str,
+    width: int,
+    text_len_fn: Callable[[str], int] | None = None,
+) -> list[tuple[str, str]]:
+    """返回 ``(rich markup, plain)`` 行；续行缩进与首行文本起始列对齐。"""
+    level_name = getattr(entry.level, "value", str(entry.level))
+    meta = _LEVEL_DISPLAY.get(level_name, _LEVEL_DISPLAY["info"])
+
+    file_part = _display_path(entry.file or "", cwd)
+    file_line = f"{file_part}:{entry.line}" if file_part else f"{_t('未知文件')}:{entry.line}"
+    max_file_width = width - ENTRY_INDENT - len(meta.symbol_plain) - 1 - len(" --> ") - MIN_ENTRY_TEXT_WIDTH
+    file_line = _shorten_middle(file_line, max_file_width, text_len_fn)
+
+    prefix_plain = f"{' ' * ENTRY_INDENT}{meta.symbol_plain} {file_line} --> "
+    text_start = _measure(prefix_plain, text_len_fn)
+    text_width = max(4, width - text_start)
+    chunks = _wrap_text(entry.text or "", text_width, text_len_fn)
+
+    first_plain = prefix_plain + chunks[0]
+    first_markup = (
+        f"{' ' * ENTRY_INDENT}{meta.symbol_markup} "
+        f"{_markup_escape(file_line)} [bold cyan]-->[/] {_markup_escape(chunks[0])}"
+    )
+    result: list[tuple[str, str]] = [(first_markup, first_plain)]
+
+    continuation = " " * text_start
+    for chunk in chunks[1:]:
+        result.append((continuation + _markup_escape(chunk), continuation + chunk))
+    return result
+
+
+def _format_hint_lines(
+    hint: str,
+    width: int,
+    text_len_fn: Callable[[str], int] | None = None,
+) -> list[tuple[str, str]]:
+    """返回 ``(markup, plain)`` 行：hint 挂到 8 列，命令行挂到 10 列。"""
+    if not hint:
+        return []
+    result: list[tuple[str, str]] = []
+    for raw_line in hint.splitlines():
+        raw = raw_line.strip()
+        if not raw:
+            continue
+        if raw.startswith("$ "):
+            command = raw[2:]
+            prefix_plain = " " * COMMAND_INDENT + "$ "
+            chunks = _wrap_text(
+                command,
+                max(4, width - _measure(prefix_plain, text_len_fn)),
+                text_len_fn,
+            )
+            first_plain = prefix_plain + chunks[0]
+            first_markup = f"{' ' * COMMAND_INDENT}[bold]$[/] {_markup_escape(chunks[0])}"
+            result.append((first_markup, first_plain))
+            continuation = " " * _measure(prefix_plain, text_len_fn)
+            for chunk in chunks[1:]:
+                result.append((continuation + _markup_escape(chunk), continuation + chunk))
+        else:
+            prefix_plain = " " * HINT_INDENT + "↳ "
+            chunks = _wrap_text(
+                raw,
+                max(4, width - _measure(prefix_plain, text_len_fn)),
+                text_len_fn,
+            )
+            first_plain = prefix_plain + chunks[0]
+            first_markup = f"{' ' * HINT_INDENT}[cyan]↳[/] {_markup_escape(chunks[0])}"
+            result.append((first_markup, first_plain))
+            continuation = " " * _measure(prefix_plain, text_len_fn)
+            for chunk in chunks[1:]:
+                result.append((continuation + _markup_escape(chunk), continuation + chunk))
+    return result
 
 
 def _strip_rich_markup(s: str) -> str:
@@ -250,16 +479,17 @@ def _format_ref_block(
     symbol_style: str,
     width: int = SUMMARY_TOTAL_LEN,
     indent: str = "  ",
+    text_len_fn: Callable[[str], int] | None = None,
 ) -> list[tuple[str, str]]:
     """返回 ``(rich markup, plain)`` 行：``[+]/[-]`` header + 按宽度换行的 keys。"""
     if not keys:
         return []
     symbol = "[+]" if "green" in symbol_style else "[-]"
-    header_line = f"[{symbol_style}]{symbol}[/{symbol_style}] [bold]{header}[/]"
+    header_line = f"[{symbol_style}]{symbol}[/] [bold]{_markup_escape(header)}[/]"
     header_plain = f"{symbol} {header}"
     result: list[tuple[str, str]] = [(header_line, header_plain)]
     sorted_keys = sorted(keys)
-    effective_plain_width = width - len(indent)
+    effective_plain_width = width - _measure(indent, text_len_fn)
 
     wrapped_rich: list[str] = []
     wrapped_plain: list[str] = []
@@ -270,13 +500,13 @@ def _format_ref_block(
         k = sorted_keys[key_idx]
         is_last = key_idx == len(sorted_keys) - 1
         sep_plain = ", " if not is_last else ""
-        k_rich = f"[cyan]{k}[/]"
+        k_rich = f"[cyan]{_markup_escape(k)}[/]"
         sep_rich = "[dim], [/]" if not is_last else ""
 
         piece_plain = k + sep_plain
         piece_rich = k_rich + sep_rich
 
-        if len(current_plain) + len(piece_plain) <= effective_plain_width:
+        if _measure(current_plain, text_len_fn) + _measure(piece_plain, text_len_fn) <= effective_plain_width:
             current_plain += piece_plain
             current_rich += piece_rich
             key_idx += 1
@@ -284,9 +514,9 @@ def _format_ref_block(
             if current_plain:
                 wrapped_rich.append(current_rich)
                 wrapped_plain.append(current_plain)
-            if len(k) > effective_plain_width:
-                k_trunc = k[: effective_plain_width - 3] + "..."
-                wrapped_rich.append(f"[cyan]{k_trunc}[/]")
+            if _measure(k, text_len_fn) > effective_plain_width:
+                k_trunc = _shorten_middle(k, effective_plain_width, text_len_fn)
+                wrapped_rich.append(f"[cyan]{_markup_escape(k_trunc)}[/]")
                 wrapped_plain.append(k_trunc)
                 key_idx += 1
             current_plain = ""
@@ -299,30 +529,38 @@ def _format_ref_block(
     return result
 
 
-def _format_top_cited(key_counts: dict[str, int], top_n: int = 10) -> list[tuple[str, str]]:
+def _format_top_cited(
+    key_counts: dict[str, int],
+    top_n: int = 10,
+    width: int = SUMMARY_TOTAL_LEN,
+    text_len_fn: Callable[[str], int] | None = None,
+) -> list[tuple[str, str]]:
     """返回 ``(rich markup, plain)`` 行：TopN 引用排行块。"""
     if not key_counts or top_n <= 0:
         return []
     items = Counter(key_counts).most_common(top_n)
     if not items:
         return []
-    sep_line = f"[dim]{'-' * SUMMARY_TOTAL_LEN}[/]"
-    sep_plain = "-" * SUMMARY_TOTAL_LEN
-    result: list[tuple[str, str]] = [(sep_line, sep_plain)]
-    title_line = f"[bold magenta](*)[/] [bold][{_t('参考文献')}] {_t('引用 Top')} {top_n}:[/]"
-    title_plain = f"(*) [{_t('参考文献')}] {_t('引用 Top')} {top_n}:"
-    result.append((title_line, title_plain))
 
-    max_key_plain = 40
-    count_width = 3
+    sep_plain = "-" * width
+    sep_line = f"[dim]{sep_plain}[/]"
+    title_plain = f"(*) [{_t('参考文献')}] {_t('引用 Top')} {top_n}:"
+    title_line = f"[bold](*)[/] [bold]{_markup_escape(title_plain[4:])}[/]"
+    result: list[tuple[str, str]] = [(sep_line, sep_plain), (title_line, title_plain)]
+
+    max_count = max(count for _, count in items)
+    count_width = max(3, len(str(max_count)))
+    rank_width = len(f"({top_n})")
+    tail_width = 2 + count_width + 1 + _measure(_t("次引用"), text_len_fn)
+    key_width = width - 4 - rank_width - 1 - tail_width
+    key_width = max(8, min(28, key_width))
+
     for rank, (key, count) in enumerate(items, 1):
-        key_plain = key
-        if len(key_plain) > max_key_plain:
-            key_plain = key_plain[: max_key_plain - 3] + "..."
-        key_padded = key_plain.ljust(max_key_plain)
-        rank_str = f"({rank})"
+        key_plain = _truncate_to(key, key_width, text_len_fn)
+        key_padded = key_plain.ljust(key_width)
+        rank_str = f"({rank})".ljust(rank_width)
         count_str = str(count).rjust(count_width)
-        line = f"    {rank_str} [cyan]{key_padded}[/]  [bold magenta]{count_str}[/] {_t('次引用')}"
+        line = f"    {rank_str} [cyan]{_markup_escape(key_padded)}[/]  [bold]{count_str}[/] {_t('次引用')}"
         line_plain = f"    {rank_str} {key_padded}  {count_str} {_t('次引用')}"
         result.append((line, line_plain))
 

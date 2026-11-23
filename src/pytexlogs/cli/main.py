@@ -29,7 +29,9 @@ from ..core.models import (
     level_from_value,
 )
 from ..core.stats import recompute_stats
-from ..display import print_summary, set_summary_language
+from ..display import CATEGORY_LABEL, print_summary, set_summary_language
+from ..display.formatter import _t as _summary_t
+from ..display.formatter import display_width, resolve_summary_width
 from ..exporters.csv_exporter import to_csv
 from ..exporters.json_exporter import filter_by_level, to_json
 from ..exporters.sarif_exporter import to_sarif
@@ -58,6 +60,14 @@ _MSG: dict[str, dict[str, str]] = {
         "parse_failure_warning": "warning: {tool} 解析失败: {type}: {msg}",
         "baseline_missing": "基线报告不存在：{path}（先用 --output 导出一次 JSON 报告）",
         "cli_error": "pytexlogs 执行失败：{type}: {msg}（设置 PYTEXLOGS_DEBUG=1 可查看堆栈）",
+        "summary_title": "PyTeXLogs 摘要",
+        "n_entries": "{n} 条",
+        "n_errors": "{n} 个错误",
+        "n_warnings": "{n} 个警告",
+        "n_hints": "{n} 个提示",
+        "by_category": "按类别",
+        "by_parser": "按解析器",
+        "colon": "：",
     },
     "en": {
         "explain_empty": "Provide a log snippet, e.g. pytexlogs explain 'Missing character'",
@@ -69,6 +79,14 @@ _MSG: dict[str, dict[str, str]] = {
         "parse_failure_warning": "warning: failed to parse {tool}: {type}: {msg}",
         "baseline_missing": "Baseline report not found: {path} (export a JSON report with --output first)",
         "cli_error": "pytexlogs failed: {type}: {msg} (set PYTEXLOGS_DEBUG=1 for a traceback)",
+        "summary_title": "PyTeXLogs",
+        "n_entries": "{n} entries",
+        "n_errors": "{n} errors",
+        "n_warnings": "{n} warnings",
+        "n_hints": "{n} hints",
+        "by_category": "By category",
+        "by_parser": "By parser",
+        "colon": ": ",
     },
 }
 
@@ -356,7 +374,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.subcmd == "demo":
             from ..integration_demo import run_demo
 
-            run_demo()
+            run_demo(getattr(args, "width", None))
             return 0
 
         if args.subcmd == "explain":
@@ -429,16 +447,53 @@ def main(argv: list[str] | None = None) -> int:
             _warn_parse_failures(parse_failures, lang)
         else:
             lines: list[str] = []
+            layout_width = resolve_summary_width(getattr(args, "width", None))
             if has_displayable_entries:
                 # 只统计真正有展示条目的结果；解析失败的 0 条目结果不应
                 # 冒出一行 "compile=0"。
                 stats_c = {k: v for k, v in _aggregate_stats(filtered_for_output, group_by="category").items() if v}
                 stats_p = {k: v for k, v in _aggregate_stats(filtered_for_output, group_by="parser").items() if v}
-                lines.append("=== PyTeXLogs Summary ===")
+                level_stats = _aggregate_stats(filtered_for_output, group_by="level")
+                n_errors = level_stats.get("error", 0)
+                n_warnings = level_stats.get("warning", 0)
+                n_hints = sum(v for k, v in level_stats.items() if k not in ("error", "warning"))
+                total_entries = sum(level_stats.values())
+
+                def _append_segments(prefix: str, segments: list[str]) -> None:
+                    """统计行以「段」为最小单位折行，避免把 ``3 个警告`` 拆开。
+
+                    续行缩进与首行正文起始列对齐；段之间用 `` · `` 连接。
+                    """
+                    continuation = " " * display_width(prefix)
+                    line = prefix + segments[0]
+                    for segment in segments[1:]:
+                        candidate = f"{line} · {segment}"
+                        if display_width(candidate) <= layout_width:
+                            line = candidate
+                        else:
+                            lines.append(line)
+                            line = continuation + segment
+                    lines.append(line)
+
+                header_segments = [
+                    _msg("n_entries", lang, n=total_entries),
+                    _msg("n_errors", lang, n=n_errors),
+                    _msg("n_warnings", lang, n=n_warnings),
+                ]
+                if n_hints:
+                    header_segments.append(_msg("n_hints", lang, n=n_hints))
+                _append_segments(f"{_msg('summary_title', lang)} · ", header_segments)
+
                 if stats_c:
-                    lines.append("By category: " + ", ".join(f"{k}={v}" for k, v in stats_c.items()))
+                    _append_segments(
+                        f"  {_msg('by_category', lang)}{_msg('colon', lang)}",
+                        [f"{_summary_t(CATEGORY_LABEL.get(k, k))} {v}" for k, v in stats_c.items()],
+                    )
                 if stats_p:
-                    lines.append("By parser:   " + ", ".join(f"{k}={v}" for k, v in stats_p.items()))
+                    _append_segments(
+                        f"  {_msg('by_parser', lang)}{_msg('colon', lang)}",
+                        [f"{k} {v}" for k, v in stats_p.items()],
+                    )
                 parsed_logs_list = _as_parsed_logs(filtered_for_output)
                 hint_jobname = getattr(args, "jobname", None)
                 if not hint_jobname:
@@ -464,6 +519,7 @@ def main(argv: list[str] | None = None) -> int:
                         jobname=hint_jobname,
                         root_file=hint_root_file,
                         stream=io.StringIO(),
+                        width=layout_width,
                     )
                 lines.append(summary_str.rstrip())
             if parse_failures:

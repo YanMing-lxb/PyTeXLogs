@@ -1,5 +1,30 @@
 # Changelog
 
+## v0.6.3 - 2026-11-23
+
+### ✨ 新增
+
+- 📐 **摘要宽度可配置**：`print_summary(..., width=N)`、`show_log_entries(..., width=N)`、`run_pipeline(..., summary_width=N)` 与 CLI `--width N` 统一覆盖默认 74 列版式；PyTeXMK 等调用方可按自身控制台宽度传入，低于 40 列时自动收敛到 40，避免版式被压坏。
+- 🪜 **换行悬挂缩进**：条目正文、hint、可执行命令与统计行折行后，续行均与首行文本起始列对齐；路径超宽时保留 `:line` 并做中间省略，正文区至少保留 12 列。
+- 🧮 **CJK 显示宽度**：标题、条目和分隔线改用 `unicodedata.east_asian_width` 计算显示列数（全角/宽字符按 2 列），修复中文标题居中/分隔线长度偏差。
+
+### ♻️ 变更
+
+- 🧱 **摘要版式统一**：等级标题沿用旧版 `==== 错误汇总 · 3 ====` 居中横幅（保留条数），分类标题沿用 `+-- [一般编译] · 3 ---` 框线；移除 0.6.3 开发中新增的整行 `─` 底边。条目 4 列起、hint 8 列起、命令 10 列起，宽度与悬挂缩进保持可配置。
+- 🎨 **颜色收敛**：error / warning / info 保留红黄蓝，`typesetting` / `font` / `graphic` / `page` 统一 dim 灰，仅用 `[T]` / `[F]` / `[G]` / `[P]` 区分，避免弱对比色相堆叠。
+- 🏷️ **标题与统计**：CLI 文本头改为本地化计数形式（如 `PyTeXLogs 摘要 · 17 条 · 0 个错误 · 3 个警告 · 14 个提示`），类别/解析器统计改为显示标签并支持按段折行。
+- 📚 **参考文献块**：总计行修复中文 `篇 ，` 多空格与英文 `Total 12 ,Unchanged 8` 的逗号/行尾空格；Top 引用 key 列宽随版式宽度收缩。
+- 💡 **Hint 命令**：hint 内的可执行命令单独成行并加 `$` 前缀，续行对齐命令文本；日志正文进入 rich markup 前统一转义，避免 `[foo]` 被当成样式标签。
+- 🖥️ **demo 宽度**：`pytexlogs demo --width N` 的标题框与摘要同步使用指定宽度。
+
+### 🐛 修复
+
+- 🖼️ **缺文件提示跨行**：`_MISSING_FILE_RE` 不再排除换行，TeX 79 列硬折行拆开的文件名（如 `pressure_cold_` + `layer5.pdf`）重新命中 `missing_file` / `missing_graphic`，不再退回 `package_error` 兜底；提示文案与 `kpsewhich` 命令里的文件名会接回完整名称。
+
+### 🧪 测试
+
+- ✅ 全量 **749 passed, 6 skipped**；新增 `tests/test_summary_layout.py` **9** 个回归，覆盖宽度收敛、悬挂缩进、旧版分隔线、CJK 宽度、参考文献空格、hint/命令对齐、`run_pipeline` / `show_log_entries` / CLI `--width` 透传；`ruff` 全绿。
+
 ## v0.6.2 - 2026-11-22
 
 ### 🐛 修复

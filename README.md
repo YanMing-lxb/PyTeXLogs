@@ -1,6 +1,6 @@
 # PyTeXLogs
 
-PyTeXLogs v0.6.2 是 LaTeX/BibTeX/Biber/Minted/Asymptote/Makeindex 日志解析库。可嵌入任意 Python 工具链。
+PyTeXLogs v0.6.3 是 LaTeX/BibTeX/Biber/Minted/Asymptote/Makeindex 日志解析库。可嵌入任意 Python 工具链。
 
 > v0.5.0 起新增：可执行建议（`hint_for_text` / `hint_for_entry`，缺宏包直接给
 > `tlmgr install` / `miktex packages install` 命令）、日志类型嗅探
@@ -54,19 +54,26 @@ print_summary([parsed], use_logger=False, non_quiet=True)
 
 ```
 错误 3 条，警告 0 条
-================================== 错误汇总 ==================================
-+-- [一般编译] ---------------------------------------------------------------
-  [E] article.cls:5 --> Undefined control sequence.
-  [E] article.cls:5 --> Emergency stop.
-  [E] article.cls:1 --> ==> Fatal error occurred, no output PDF file produced!
---------------------------------------------------------------------------
+============================== 错误汇总 · 3 ==============================
++-- [一般编译] · 3 -------------------------------------------------------
+    [E] article.cls:5 --> Undefined control sequence.
+    [E] article.cls:5 --> Emergency stop.
+    [E] article.cls:1 --> ==> Fatal error occurred, no output PDF file
+                          produced!
 ```
+
+版式默认 74 列；窄终端或嵌入宿主工具时可传 `width=`（CLI 用 `--width`）覆盖，
+折行续行会与首行正文起始列对齐。PyTeXMK 可直接调用
+`run_pipeline(..., summary_width=80)` 或 `print_summary(..., width=80)`。
 
 ### 3.2 CLI 一行使用
 
 ```bash
 # 诊断单个 .log；有 ERROR 时退出码=1
 pytexlogs check build/main.log
+
+# 窄终端：摘要固定 60 列，折行续行悬挂对齐
+pytexlogs check build/main.log --width 60
 
 # 英文摘要
 pytexlogs summary ./main.log --lang en
@@ -125,9 +132,9 @@ print(f"自定义 parser 产出 {len(results[0].warnings)} 条 lint 警告")
 | `sniff_tex_engine(log_path)` | 单独判断引擎类型，认不出返回 `None` |
 | `filter_severity(entries, min_level=WARNING)` | 按严重度裁剪日志条目 |
 | `aggregate_stats(obj, group_by="category\|level\|parser")` | 聚合统计 → 直方图/报表数据源；未知 `group_by` 抛 `ValueError` |
-| `run_pipeline(...)` | 完整 pipeline：发现→解析→汇总→摘要→报告一体化（推荐）；未给 `jobname` 时从 `auxdir` 推断 |
-| `print_summary(results, ...)` | 终端友好的摘要打印；`show_info=True` 时含信息/排版/字体/图形/页面提示，`show_hints=True` 时含错误/警告汇总与可执行建议 |
-| `show_log_entries(entries, ...)` | 逐条日志条目可视化展示，支持 `ParsedLog` / `ToolResultReport` / `ReportEntry` |
+| `run_pipeline(...)` | 完整 pipeline：发现→解析→汇总→摘要→报告一体化（推荐）；未给 `jobname` 时从 `auxdir` 推断；`summary_width=` 控制摘要宽度 |
+| `print_summary(results, ..., width=74)` | 终端友好的摘要打印；`show_info=True` 时含信息/排版/字体/图形/页面提示，`show_hints=True` 时含错误/警告汇总与可执行建议；`width` 可覆盖默认 74 列 |
+| `show_log_entries(entries, ..., width=74)` | 逐条日志条目可视化展示，支持 `ParsedLog` / `ToolResultReport` / `ReportEntry`；`width` 与 `print_summary` 一致 |
 | `format_editor_jumps(entries)` | 生成 `file:line: message` 的编辑器跳转列表 |
 | `log_editor_jumps(entries)` | 通过 logging 输出编辑器跳转列表 |
 | `set_summary_language(lang, translate_fn=None)` | 全局设置摘要语言（zh/en）或自定义翻译函数 |

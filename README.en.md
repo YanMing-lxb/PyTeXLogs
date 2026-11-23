@@ -46,19 +46,27 @@ Output:
 
 ```
 Errors: 3, Warnings: 0
-============================= Error Summary ==============================
-+-- [Compilation] --------------------------------------------------------
-  [E] article.cls:5 --> Undefined control sequence.
-  [E] article.cls:5 --> Emergency stop.
-  [E] article.cls:1 --> ==> Fatal error occurred, no output PDF file produced!
---------------------------------------------------------------------------
+=========================== Error Summary · 3 ============================
++-- [Compilation] · 3 ----------------------------------------------------
+    [E] article.cls:5 --> Undefined control sequence.
+    [E] article.cls:5 --> Emergency stop.
+    [E] article.cls:1 --> ==> Fatal error occurred, no output PDF file
+                          produced!
 ```
+
+The layout defaults to 74 columns. Pass `width=` (CLI: `--width N`) for narrow
+terminals or embedding hosts; wrapped lines keep a hanging indent aligned with
+the entry text. PyTeXMK can call `run_pipeline(..., summary_width=80)` or
+`print_summary(..., width=80)`.
 
 ### 3.2 CLI One-Liners
 
 ```bash
 # Diagnose a single .log; exit code = 1 when ERRORs are present
 pytexlogs check build/main.log
+
+# Narrow terminal: fixed 60-column summary with hanging-indent wraps
+pytexlogs check build/main.log --width 60
 
 # English summary
 pytexlogs summary ./main.log --lang en
@@ -109,9 +117,9 @@ Grouped by `__all__` six sections:
 | `parse_auxdir(jobname, auxdir, steps, captured_outputs)` | One-liner to scan entire LaTeX auxiliary directory; `steps=None` appends missing `captured_outputs` keys |
 | `filter_severity(entries, min_level=WARNING)` | Filter log entries by severity |
 | `aggregate_stats(obj, group_by="category\|level\|parser")` | Aggregated statistics → histogram / report data source; unknown `group_by` raises `ValueError` |
-| `run_pipeline(...)` | Full pipeline: discover → parse → aggregate → summarize → report (recommended); infers `jobname` from `auxdir` when omitted |
-| `print_summary(results, ...)` | Terminal-friendly summary; `show_info=True` includes info/typesetting/font/graphics/page groups, and `show_hints=True` adds error/warning hints |
-| `show_log_entries(entries, ...)` | Visualize log entries one by one; accepts `ParsedLog` / `ToolResultReport` / `ReportEntry` |
+| `run_pipeline(...)` | Full pipeline: discover → parse → aggregate → summarize → report (recommended); infers `jobname` from `auxdir` when omitted; `summary_width=` controls summary width |
+| `print_summary(results, ..., width=74)` | Terminal-friendly summary; `show_info=True` includes info/typesetting/font/graphics/page groups, and `show_hints=True` adds error/warning hints; `width` overrides the 74-column default |
+| `show_log_entries(entries, ..., width=74)` | Visualize log entries one by one; accepts `ParsedLog` / `ToolResultReport` / `ReportEntry`; `width` matches `print_summary` |
 | `format_editor_jumps(entries)` | Generate editor jump list as `file:line: message` |
 | `log_editor_jumps(entries)` | Output editor jump list via logging |
 | `set_summary_language(lang, translate_fn=None)` | Set summary language globally (zh/en) or custom translation function |

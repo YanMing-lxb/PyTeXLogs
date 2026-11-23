@@ -7,14 +7,16 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 
-def run_demo() -> None:
+def run_demo(width: int | None = None) -> None:
     """运行内置演示：创建示例日志 → 解析 → 打印摘要。"""
     from .core.engine import run_pipeline
     from .display import print_summary
+    from .display.formatter import resolve_summary_width
 
-    print("=" * 60)
+    layout_width = resolve_summary_width(width)
+    print("=" * layout_width)
     print("PyTeXLogs Integration Demo")
-    print("=" * 60)
+    print("=" * layout_width)
 
     with tempfile.TemporaryDirectory(prefix="pytexlogs_demo_") as tmpdir:
         tmp = Path(tmpdir)
@@ -85,7 +87,7 @@ Warning--I couldn't open database file references.bib
             )
             parsed_logs_list.append(pl)
 
-        print_summary(parsed_logs_list, use_logger=False, non_quiet=True)
+        print_summary(parsed_logs_list, use_logger=False, non_quiet=True, width=width)
 
-    print("=" * 60)
+    print("=" * layout_width)
     print("Demo completed.")
