@@ -5,11 +5,19 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "pytexlogs"
 dynamic = ["version"]
-authors = [
-  { name = "焱铭", email = "lxb-yanming@foxmail.com" },
-]
+authors = [{ name = "焱铭", email = "lxb-yanming@foxmail.com" }]
 description = "LaTeX/BibTeX/Biber/Minted/... 日志解析独立库，从 PyTeXMK 抽离，可嵌入其他工具链。An independent LaTeX/BibTeX/Minted log parser library extracted from PyTeXMK."
-keywords = ["LaTeX", "logs", "parser", "latexmk", "bibtex", "biber", "minted", "asymptote"]
+readme = { file = "README.md", content-type = "text/markdown" }
+keywords = [
+    "LaTeX",
+    "logs",
+    "parser",
+    "latexmk",
+    "bibtex",
+    "biber",
+    "minted",
+    "asymptote",
+]
 dependencies = []
 requires-python = ">=3.15"
 license = "GPL-3.0-or-later"
@@ -22,10 +30,14 @@ classifiers = [
     "Operating System :: OS Independent",
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Topic :: Text Processing :: Markup :: LaTeX",
+    "Typing :: Typed",
 ]
 
 [project.urls]
 Homepage = "https://pypi.org/project/pytexlogs"
+Repository = "https://github.com/YanMing-lxb/PyTeXLogs"
+Issues = "https://github.com/YanMing-lxb/PyTeXLogs/issues"
+Changelog = "https://github.com/YanMing-lxb/PyTeXLogs/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 rich = ["rich>=15.0.0"]
@@ -33,8 +45,9 @@ rich = ["rich>=15.0.0"]
 [project.scripts]
 pytexlogs = "pytexlogs.cli.main:main"
 
-[project.entry-points."pytexlogs.parsers"]
-# reserved for third-party packages
+# 说明：第三方 parser 通过 `[project.entry-points."pytexlogs.parsers"]` 组注册，
+# 由 LogParserRegistry.load_entry_points() 在运行时经 importlib.metadata 发现。
+# 本包自身不提供该组入口，声明空表不会注册任何 parser，因此这里不写空表。
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -53,19 +66,17 @@ target-version = "py315"
 [tool.ruff.lint]
 # 显式锁定规则集：ruff >=0.13 起未配置 select 时默认启用「全部规则」，
 # 升级 ruff 会在毫无代码改动的情况下突然冒出上百条告警。这里固定为
-# 「默认 E4/E7/E9 + F + 导入排序 I + pyupgrade UP + bugbear B」这一组，
+# 「默认 E4/E7/E9 + F + W + 导入排序 I + pyupgrade UP + bugbear B」这一组，
 # 与 PyTeXMK 保持完全一致，保证两个库的检查口径统一。
+# E501 不在启用集合内：行宽由 formatter 统一处理，lint 阶段不报行宽。
 select = ["E4", "E7", "E9", "F", "W", "I", "UP", "B"]
-ignore = ["E501"]          # 行宽由 formatter 负责，不在 lint 阶段报错
-fixable = ["ALL"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["pytexlogs"]
 known-third-party = ["rich"]
 
 [tool.ruff.format]
-quote-style = "double"
-indent-style = "space"
+# 默认 auto 会沿用文件原有行尾，Windows 上会把 CRLF 写进工作区；这里固定 LF。
 line-ending = "lf"
 
 [[tool.uv.index]]
@@ -76,10 +87,10 @@ default = true
 
 [dependency-groups]
 dev = [
-    "pytest>=9.1.1",
-    "pytest-cov>=6.0",
+    "pytest>=9.2.0",
+    "pytest-cov>=7.1.0",
     "ruff",
-    "rich>=15.0.0",
+    "rich>=15.0.0",      # 与 [project.optional-dependencies] rich 的版本约束保持同步，测试要覆盖富文本路径
 ]
 
 [tool.coverage.run]
@@ -87,4 +98,3 @@ source = ["src/pytexlogs"]
 # 0.6.1 起不再 omit 任何业务模块：0.5 把 12 个核心模块（engine/report/manager/
 # reftracker/6 个 parser）整段排除在覆盖率之外，等于"只统计容易覆盖的部分"。
 # 覆盖率低就要补测试，而不是把被测对象藏起来。
-
