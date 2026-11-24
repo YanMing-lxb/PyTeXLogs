@@ -6,6 +6,7 @@
 解析器在 MiKTeX 上会把全部统计与 style error 静默丢弃（entries=0）。
 """
 
+from pytexlogs.core.models import LogLevel
 from pytexlogs.parsers.bibtex import BibtexParser
 from pytexlogs.parsers.glossaries import GlossariesParser
 from pytexlogs.parsers.makeindex import MakeindexParser
@@ -71,11 +72,17 @@ def test_makeindex_miktex_entries_stat():
 
 
 def test_makeindex_miktex_style_error_two_line_pair():
-    """``** Input style error (...):`` 标题行必须与 ``   -- 说明`` 续行合并成一条。"""
+    """``** Input style error (...):`` 标题行必须与 ``   -- 说明`` 续行合并成一条。
+
+    0.6.4 起 ``Unknown specifier`` 是样式/版本不匹配（.ind 仍会生成），
+    按 WARNING 计数，不再冒充 ERROR。
+    """
     r = MakeindexParser(root_file="main").parse(MIKTEX_ILG, root_file="main")
     assert r.stats["style_errors_count"] == 3
-    assert len(r.errors) == 3
-    first = r.errors[0]
+    assert len(r.errors) == 0
+    warnings = [e for e in r.entries if e.level is LogLevel.WARNING]
+    assert len(warnings) == 3
+    first = warnings[0]
     assert first.line == 36
     assert "Input style error" in first.text
     assert "Unknown specifier lethead_prefix" in first.text

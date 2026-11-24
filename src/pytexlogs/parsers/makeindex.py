@@ -18,6 +18,18 @@ from .index_patterns import (
     warnings_issued_re,
 )
 
+#: MiKTeX 的 ``Unknown specifier lethead_*`` 来自 nomencl.ist 与 makeindex
+#: 版本不匹配：同一份 .ilg 往往同时写着 ``0 warnings`` 且 .ind 正常生成。
+#: 把它当 ERROR 会让成功编译的摘要凭空出现“3 个错误”；降为 WARNING 保留可见性。
+#: 注意 ``Unknown specifier`` 只出现在两行式错误的续行，标题行本身不含它。
+_STYLE_SPECIFIER_MARKERS = ("Unknown specifier",)
+
+
+def _style_error_level(text: str) -> LogLevel:
+    if any(marker in text for marker in _STYLE_SPECIFIER_MARKERS):
+        return LogLevel.WARNING
+    return LogLevel.ERROR
+
 
 class MakeindexParser(BaseLogParser):
     """Makeindex 索引解析器：解析 .ilg 与 makeindex 输出。"""
@@ -92,6 +104,10 @@ class MakeindexParser(BaseLogParser):
                 detail = stripped[2:].strip()
                 if detail:
                     self._pending_style_error.text = f"{self._pending_style_error.text}：{detail}"
+                # 具体的 ``Unknown specifier`` 只出现在续行；等到续行才知道
+                # 这是版本不匹配（见 _style_error_level 的说明），就地降级。
+                if _style_error_level(detail) is LogLevel.WARNING:
+                    self._pending_style_error.level = LogLevel.WARNING
                 # 续行处理完毕，放行当前行继续走下面的分类逻辑：
                 # 标题与续行必然成对出现，因此这里直接 return 是安全的。
                 self._pending_style_error = None
@@ -179,8 +195,9 @@ class MakeindexParser(BaseLogParser):
         m = miktex_style_error_re.match(stripped)
         if m:
             self._style_errors += 1
+            level = _style_error_level(m.group(1))
             self._pending_style_error = LogEntry(
-                level=LogLevel.ERROR,
+                level=level,
                 file=self._resolve_style_file(m.group(2)),
                 line=int(m.group(3)),
                 text=m.group(1).strip(),
@@ -194,7 +211,7 @@ class MakeindexParser(BaseLogParser):
             self._style_errors += 1
             self.build_log.append(
                 LogEntry(
-                    level=LogLevel.ERROR,
+                    level=_style_error_level(m.group(1)),
                     file=self.root_file,
                     line=1,
                     text=m.group(1).strip(),
