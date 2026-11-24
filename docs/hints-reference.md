@@ -3,7 +3,7 @@
 本页面向使用者：列出每条可执行建议（hint）的触发日志、建议要点、适用工具
 与误报边界。规则按 `src/pytexlogs/hints.py` 中的 `_RULES` 顺序匹配，先命中的
 具体规则优先于兜底规则；`rule_id` 同时出现在 JSON/SARIF 导出里，便于追溯。
-规则总数以 `len(RULE_IDS)` 实测为准，当前为 **41** 条。
+规则总数以 `len(RULE_IDS)` 实测为准，当前为 **43** 条。
 
 工具作用域：`latex` 规则仅在 LaTeX 引擎日志（pdflatex/xelatex/lualatex/tectonic）
 上生效；`biber`/`bibtex` 旧提示表按工具隔离，避免跨工具误判。
@@ -52,6 +52,8 @@
 | `hyperref_pdf_string` | `Package hyperref Warning: Token not allowed in a PDF string (Unicode):` | PDF 书签只接受纯文本，`\textbf`、数学、`^`/`_` 等 token 会被移除：标题/章节写 `\texorpdfstring{排版版}{书签纯文本}`，或导言区用 `\pdfstringdefDisableCommands` 统一降级 | latex / hyperref | 这是书签降级警告，不影响正文排版 |
 | `fontspec_font_not_found` | `! Package fontspec Error: The font "NoSuchFontFamilyXYZ" cannot be found.` | fontspec 找不到字体，先分“按名/按文件”：按名核对 family 全名（Linux/macOS `fc-list : family \| grep -iF "<name>"`；Windows 在字体设置核对）；字体在 TEXMF 树内时 LuaTeX 可按名，XeTeX 在 Windows/Linux 可、macOS 只能按文件名。按文件核对扩展名、`Path=`、`UprightFont/BoldFont` 等变体，并用 `kpsewhich "<name>"` 定位。`luaotfload-tool --update` 仅 LuaLaTeX | xelatex / lualatex | 先于 `package_error` 兜底；不是缺 fontspec 宏包；不能笼统要求“用系统字体名而非文件名” |
 | `package_error` | `! Package hyperref Error: Wrong driver.` | 通用宏包错误：查看该行上下文与宏包选项，必要时升级/降级该宏包 | latex | 兜底规则；更具体的字体/选项/定界符规则已在前面命中 |
+| `bib_key_non_ascii` | `Warning--I didn't find a database entry for "AboulKhail.Erişen_2303"` | BibTeX 只接受 ASCII 键名：把 `.bib` 的键与正文 `\cite` 一起改成纯 ASCII 后重跑 bibtex；只接管键名含非 ASCII 字符的数据库缺失告警 | bibtex / biber | 先于 `log_hint` 兜底；纯 ASCII 键找不到仍走旧提示表 |
+| `makeindex_style_specifier` | `** Input style error (file = ...): Unknown specifier lethead_prefix` | MiKTeX 的 makeindex 与 `.ist` 样式版本不匹配（如 `nomencl.ist` 的 `lethead_*`）；不是索引内容错误，索引产物（`.ind`/`.nls`）已生成可忽略，否则换匹配的发行版或删掉该样式里的选项 | makeindex | 解析器已把这类条目降为 WARNING；先于 `log_hint` |
 | `log_hint` | `Overfull \hbox ...`、`Underfull \hbox/\vbox ...`、`Rerun to get cross-references right`、bibtex/biber 通用警告等内建提示表 | 按旧提示表给出通用建议；表内条目按工具（LaTeX/BibTeX/Biber）隔离 | 按工具 | 兜底桶；被引用块（`> `）、注释（`% `）、成对引号包裹或解释性散文提及的样例字符串不参与匹配 |
 
 ## 误报与边界说明

@@ -1,6 +1,6 @@
 # PyTeXLogs
 
-PyTeXLogs v0.6.3 是 LaTeX/BibTeX/Biber/Minted/Asymptote/Makeindex 日志解析库。可嵌入任意 Python 工具链。
+PyTeXLogs v0.6.4 是 LaTeX/BibTeX/Biber/Minted/Asymptote/Makeindex 日志解析库。可嵌入任意 Python 工具链。
 
 > v0.5.0 起新增：可执行建议（`hint_for_text` / `hint_for_entry`，缺宏包直接给
 > `tlmgr install` / `miktex packages install` 命令）、日志类型嗅探
@@ -8,8 +8,10 @@ PyTeXLogs v0.6.3 是 LaTeX/BibTeX/Biber/Minted/Asymptote/Makeindex 日志解析�
 > `pytexlogs explain` 子命令、SARIF 规则与指纹、`--baseline/--severity/--jobname`。
 >
 > 每条建议带稳定 `rule_id`（JSON `hints[].hint.rule_id`、SARIF
-> `properties["pytexlogs/hint"].rule_id`）；41 条规则的触发条件、工具作用域与误报边界见
-> [`docs/hints-reference.md`](docs/hints-reference.md)。
+> `properties["pytexlogs/hint"].rule_id`）；43 条规则的触发条件、工具作用域与误报边界见
+> [`docs/hints-reference.md`](docs/hints-reference.md)。0.6.4 起 `print_summary` 默认
+> `hint_style="brief"`（一行说明），`"full"` 才展开完整步骤与 `$ 命令`；摘要末尾由
+> `format_footer(...)` 统一给一条「下一步」。
 
 ## 安装
 
@@ -133,7 +135,8 @@ print(f"自定义 parser 产出 {len(results[0].warnings)} 条 lint 警告")
 | `filter_severity(entries, min_level=WARNING)` | 按严重度裁剪日志条目 |
 | `aggregate_stats(obj, group_by="category\|level\|parser")` | 聚合统计 → 直方图/报表数据源；未知 `group_by` 抛 `ValueError` |
 | `run_pipeline(...)` | 完整 pipeline：发现→解析→汇总→摘要→报告一体化（推荐）；未给 `jobname` 时从 `auxdir` 推断；`summary_width=` 控制摘要宽度 |
-| `print_summary(results, ..., width=74)` | 终端友好的摘要打印；`show_info=True` 时含信息/排版/字体/图形/页面提示，`show_hints=True` 时含错误/警告汇总与可执行建议；`width` 可覆盖默认 74 列 |
+| `print_summary(results, ..., width=74)` | 终端友好的摘要打印；`show_info=True` 时含信息/排版/字体/图形/页面提示，`show_hints=True` 时含错误/警告汇总与可执行建议；`hint_style="brief"/"full"` 控制一行版或完整版；`show_footer=False` 可关闭统一页脚；`width` 可覆盖默认 74 列 |
+| `format_footer(has_errors=False)` | 返回统一「下一步」页脚文案；`has_errors=True` 时提示先修 ERROR |
 | `show_log_entries(entries, ..., width=74)` | 逐条日志条目可视化展示，支持 `ParsedLog` / `ToolResultReport` / `ReportEntry`；`width` 与 `print_summary` 一致 |
 | `format_editor_jumps(entries)` | 生成 `file:line: message` 的编辑器跳转列表 |
 | `log_editor_jumps(entries)` | 通过 logging 输出编辑器跳转列表 |

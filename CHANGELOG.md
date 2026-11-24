@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.6.4 - 2026-11-24
+
+### ✨ 新增
+
+- ⏱️ **流水线分段计时**：`PipelineMeta` 新增 `parse_ms`、`refs_ms`、`render_ms`；`duration_ms` 语义保持不变（仍是解析阶段），旧消费方不受影响。PyTeXMK 可据此把「日志分析」从 Python 残差里单独核对。
+- 💬 **一行版 hint**：`Hint` 新增 `brief` / `brief_en`；`print_summary(..., hint_style="brief")`（默认）只输出一行说明，`"full"` 保留完整排查步骤与 `$ 命令`，供 `-r --verbose` 或排障使用。
+- 🦶 **统一页脚**：新增 `format_footer(has_errors=...)`，摘要末尾只给一条「下一步」，不再重复分组标题里的计数；无 ERROR 时不会让人去修不存在的问题。
+- 🧾 **非 ASCII bib 键提示**：新规则 `bib_key_non_ascii`，把 BibTeX 的 `database entry for "…"` 告警直接指向「键名含非 ASCII 字符，改成纯 ASCII 后重跑」，不再落进通用兜底。
+- 🗂️ **索引样式说明符提示**：新规则 `makeindex_style_specifier`，解释 `Unknown specifier lethead_*` 是 `.ist` 与 makeindex 版本不匹配，索引产物已生成即可忽略。
+
+### ♻️ 变更
+
+- 🔇 **`Unknown specifier` 降级**：MiKTeX 的 `Input style error ... Unknown specifier lethead_*` 由 ERROR 改为 WARNING；同一份 `.ilg` 已写明 `0 warnings` 且索引产物正常时，成功摘要不再凭空出现「3 个错误」。
+- 🧹 **hint 去重**：同一 `(rule_id, 规范化文案)` 只显示一次；biblatex 的 undefined citation 同时出现在 `.blg` 与 `.log` 时不再重复两条提示。
+- 🔤 **8-bit 日志兜底**：`read_log_text` 在 `utf-8-sig` / `gb18030` 都失败后追加 `latin-1`，TeX 直接吐出的 `Eri\xb3en` 不再被替换成 U+FFFD（GBK/Shift-JIS 仍先走 CJK 编码，不会被 latin-1 抢先误解）。
+
+### 🧪 测试
+
+- ✅ 全量 **762 passed, 6 skipped**；新增 `tests/test_2026_11_24_fixes.py` 覆盖 brief/full、非 ASCII 键、索引降级、页脚分支、hint 去重与 latin-1 兜底；`ruff` 全绿。
+
 ## v0.6.3 - 2026-11-23
 
 ### ✨ 新增
