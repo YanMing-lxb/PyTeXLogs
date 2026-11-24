@@ -128,7 +128,7 @@ def test_hint_and_command_hanging_indent() -> None:
         line=3,
         text="LaTeX Warning: Citation `Smith2020' undefined on input line 3.",
     )
-    summary = _summary([entry], width=60, show_hints=True, jobname="main")
+    summary = _summary([entry], width=60, show_hints=True, hint_style="full", jobname="main")
     lines = summary.splitlines()
     hint_index = next(i for i, line in enumerate(lines) if "↳" in line)
     command_index = next(i for i, line in enumerate(lines) if "$ biber main" in line)
@@ -137,6 +137,19 @@ def test_hint_and_command_hanging_indent() -> None:
     assert lines[hint_index + 1].startswith("          ")
     assert lines[command_index].startswith("          $ biber main")
     assert all(display_width(line) <= 60 for line in lines)
+
+
+def test_brief_hint_is_one_line_without_commands() -> None:
+    """默认 brief：只给一行说明，不把安装/排查命令塞进摘要。"""
+    entry = LogEntry(
+        level=LogLevel.WARNING,
+        file="main.tex",
+        line=3,
+        text="LaTeX Warning: Citation `Smith2020' undefined on input line 3.",
+    )
+    summary = _summary([entry], width=60, show_hints=True, jobname="main")
+    assert "先看 `.blg`" in summary
+    assert "$ biber main" not in summary
 
 
 def test_width_is_forwarded_by_show_log_entries(monkeypatch: pytest.MonkeyPatch) -> None:

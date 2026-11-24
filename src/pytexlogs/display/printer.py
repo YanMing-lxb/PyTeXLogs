@@ -101,6 +101,18 @@ def log_editor_jumps(entries: list[LogEntry], logger: logging.Logger | None = No
         logger.log(level, msg)
 
 
+def format_footer(has_errors: bool = False) -> str:
+    """统一的「下一步」页脚：只给动作，不重复计数。
+
+    PyTeXMK 以前在摘要后自己拼「8 个警告、3 个错误，可运行 pytexmk -r」，
+    与 pytexlogs 的摘要标题计数重复，还给出第二个出口。计数交给分组标题，
+    页脚只保留一条可执行建议；没有 ERROR 时不再让人去修不存在的东西。
+    """
+    if has_errors:
+        return _t("下一步：先修上面的 ERROR（按 file:line 定位）再重跑；只剩排版/字体警告且 PDF 正常时可继续。")
+    return _t("下一步：按 file:line 核对上面的警告；仅排版/字体类且 PDF 正常时可继续。")
+
+
 def print_summary(
     parsed_logs: list[ParsedLog],
     ref_change_report: str | None = None,
@@ -119,6 +131,8 @@ def print_summary(
     stream: IO[str] | None = None,
     max_entries: int | None = None,
     show_hints: bool = False,
+    hint_style: str = "brief",
+    show_footer: bool = True,
     jobname: str | None = None,
     root_file: str | None = None,
     width: int | None = None,
@@ -129,6 +143,9 @@ def print_summary(
         max_entries: 每个「等级 × 类别」分组最多展示的条目数；``None`` 表示全量。
             超出部分折叠为一行「还有 N 条」，避免几十条 overfull 淹没真正的错误。
         show_hints: 是否为 ERROR/WARNING 条目追加一行可执行建议（见 :mod:`pytexlogs.hints`）。
+        hint_style: ``"brief"``（默认）只输出一行说明；``"full"`` 追加完整排查步骤与命令，
+            供 ``-r --verbose`` 或排障时使用。
+        show_footer: 末尾是否打印一行统一的「下一步」页脚；调用方不应再自己拼计数。
         jobname: 可选项目 jobname，用于把 hint 里的 ``biber <jobname>`` 替换正确。
         root_file: 可选主 ``.tex`` 路径；子文件条目不能自己充当项目根文件。
         width: 版式宽度；``None`` 沿用 :data:`SUMMARY_TOTAL_LEN`（74）。PyTeXMK 等
@@ -157,6 +174,9 @@ def print_summary(
             tool = getattr(plog, "tool_name", "") or ""
             if tool:
                 entry_tools.update({id(entry): tool for entry in plog.entries})
+        #: 同一规则、同一文案的 hint 只显示一次：biblatex 的 undefined citation
+        #: 会同时出现在 .blg 与 .log，两条重复提示只会让用户以为有两个问题。
+        seen_hints: set[str] = set()
 
         def emit(markup: str, plain: str, log_fn: Callable[[str], None] | None = None) -> None:
             """三路输出的唯一入口：logger / stream / rich console，同时记进返回值。
@@ -240,7 +260,15 @@ def print_summary(
                             language=_formatter._LANG,
                         )
                         if hint is not None:
-                            hint_body = "\n".join((hint.text, *(f"$ {command}" for command in hint.commands)))
+                            if hint_style == "full":
+                                hint_lines = [hint.text, *(f"$ {command}" for command in hint.commands)]
+                            else:
+                                hint_lines = [hint.brief or hint.text]
+                            hint_body = "\n".join(hint_lines)
+                            dedupe_key = f"{hint.rule_id}|{' '.join(hint_body.split()).lower()}"
+                            if dedupe_key in seen_hints:
+                                continue
+                            seen_hints.add(dedupe_key)
                             for hint_markup, hint_plain in _format_hint_lines(hint_body, layout_width, text_len_fn):
                                 emit(hint_markup, hint_plain)
 
@@ -301,6 +329,11 @@ def print_summary(
             )
             for line, plain in top_block_markup:
                 emit(line, plain)
+
+        if show_footer:
+            has_errors = any(grouped["error"][cat] for cat in CATEGORY_ORDER)
+            for footer_markup, footer_plain in _format_hint_lines(format_footer(has_errors), layout_width, text_len_fn):
+                emit(footer_markup, footer_plain)
 
         return "\n".join(output_lines)
     finally:
