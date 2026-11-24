@@ -286,7 +286,10 @@ def _run_pipeline_impl(
         attempted_steps=len(steps) - len(skipped_steps),
         skipped_steps=skipped_steps,
         duration_ms=duration_ms,
+        parse_ms=duration_ms,
     )
+
+    refs_start = time.perf_counter()
 
     ref_report = ReferencesReport()
     ref_added: list[str] = []
@@ -327,6 +330,8 @@ def _run_pipeline_impl(
     except Exception as e:
         logger.warning("参考文献跟踪失败: %s", e, exc_info=True)
         ref_report = ReferencesReport()
+
+    pipeline_meta.refs_ms = int((time.perf_counter() - refs_start) * 1000)
 
     severity_counts: dict[str, dict[str, int]] = {}
     # 分级桶按枚举动态生成：0.5 只写死 error/warning/typesetting/info，
@@ -416,6 +421,7 @@ def _run_pipeline_impl(
         # ``run_pipeline`` 未给 jobname 时会落到内部占位名；这个占位名只用于
         # 临时 auxdir，不能泄漏到 hint，否则用户会看到 ``biber pytexlogs_default_job``。
         hint_jobname = None if jobname == "pytexlogs_default_job" else jobname
+        render_start = time.perf_counter()
         print_summary(
             parsed_logs_for_summary,
             use_logger=False,
@@ -433,6 +439,7 @@ def _run_pipeline_impl(
             root_file=root_file,
             width=summary_width,
         )
+        pipeline_meta.render_ms = int((time.perf_counter() - render_start) * 1000)
 
     if write_report_file:
         from .report import _write_report_impl

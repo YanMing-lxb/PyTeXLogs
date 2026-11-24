@@ -72,3 +72,18 @@ def test_entry_to_report_tolerates_dirty_line() -> None:
     assert _entry_to_report(dirty).line == 0
     assert _entry_to_report(numeric).line == 12
     assert _entry_to_report(missing).line is None
+
+
+def test_pipeline_meta_exposes_stage_timings(tmp_path: Path) -> None:
+    """0.6.4：解析/引用/渲染三段可分别读取，``duration_ms`` 仍是解析段。"""
+    report = run_pipeline(
+        jobname="main",
+        auxdir=tmp_path,
+        print_terminal=False,
+        write_report_file=False,
+    )
+    pipeline = report.pipeline
+    assert pipeline.parse_ms == pipeline.duration_ms
+    assert pipeline.parse_ms >= 0
+    assert pipeline.refs_ms >= 0
+    assert pipeline.render_ms == 0  # 未渲染终端时保持默认值

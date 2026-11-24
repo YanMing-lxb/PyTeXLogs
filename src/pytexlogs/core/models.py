@@ -273,7 +273,14 @@ class PipelineMeta:
     total_steps: int = 0
     attempted_steps: int = 0
     skipped_steps: list[str] = field(default_factory=list)
+    #: 解析阶段耗时（语义等同旧字段 ``duration_ms``，保留后者兼容旧消费方）
     duration_ms: int = 0
+    #: 解析阶段；与 ``duration_ms`` 同值，名字更明确，便于分阶段相加
+    parse_ms: int = 0
+    #: 引用跟踪（aux/bcf + 缓存 diff）
+    refs_ms: int = 0
+    #: 终端汇总渲染（``print_summary``）
+    render_ms: int = 0
 
 
 @dataclass(slots=True)
