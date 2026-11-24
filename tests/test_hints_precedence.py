@@ -51,6 +51,8 @@ RULE_ORDER = (
     "hyperref_pdf_string",
     "fontspec_font_not_found",
     "package_error",
+    "bib_key_non_ascii",
+    "makeindex_style_specifier",
     "log_hint",
 )
 
@@ -140,6 +142,18 @@ CORPUS: list[tuple[str, str, str, str | None]] = [
         None,
     ),
     ("! Package hyperref Error: Wrong driver.", "package_error", "package_error", None),
+    (
+        'Warning--I didn\'t find a database entry for "AboulKhail.Erişen_2303"',
+        "bib_key_non_ascii",
+        "bib_key_non_ascii",
+        "bibtex",
+    ),
+    (
+        "** Input style error (file = nomencl.ist, line = 12): Unknown specifier lethead_prefix",
+        "makeindex_style_specifier",
+        "makeindex_style_specifier",
+        "makeindex",
+    ),
     ("Overfull \\hbox (12.0pt too wide) in paragraph at lines 1--2", "log_hint", "log_hint", None),
 ]
 

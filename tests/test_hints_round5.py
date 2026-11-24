@@ -179,9 +179,9 @@ def test_undefined_environment_prefixed_sample_matches() -> None:
     assert hint is not None and hint.rule_id == "undefined_environment"
 
 
-# --- 规则数口径保持实测 41 ---
+# --- 规则数口径保持实测 43 ---
 
 
 def test_rule_count_stays_41() -> None:
-    assert len(RULE_IDS) == 41
+    assert len(RULE_IDS) == 43
     assert len(RULE_IDS) == len(set(RULE_IDS))

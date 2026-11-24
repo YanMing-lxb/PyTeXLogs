@@ -152,6 +152,7 @@ def test_print_summary_passes_project_jobname_and_tool_scope() -> None:
         [parsed],
         use_logger=False,
         show_hints=True,
+        hint_style="full",
         jobname="main",
         root_file="main.tex",
         stream=StringIO(),

@@ -56,6 +56,10 @@ class Hint:
     #: 命中的规则 id（与 ``RULE_IDS`` 一一对应）；空串表示不是规则表产出的 hint。
     #: 该字段用于 JSON/SARIF 的可追溯性与测试断言，不参与文案生成。
     rule_id: str = ""
+    #: 一行版说明（``hint_style="brief"`` 时使用）；为空时回退到 ``text``。
+    brief: str = ""
+    #: 一行版英文说明；为空时回退到 ``brief`` 再回退到 ``text``。
+    brief_en: str = ""
 
 
 def collect_hints() -> dict[str, str]:
@@ -884,6 +888,11 @@ def _build_undefined_citation(match: Any) -> Hint:
         ),
         commands=("biber <jobname>", "bibtex <jobname>"),
         kind="undefined_citation",
+        brief=f"引用键 `{match.group(1)}` 未定义：先看 `.blg` 的后端原始消息，再核对 .bib 键名。",
+        brief_en=(
+            f"Citation key `{match.group(1)}` is undefined: check the backend message in "
+            "`.blg` first, then verify the key in the .bib file."
+        ),
         text_en=(
             f"Citation key `{match.group(1)}` is undefined: check .bib for that key "
             "and confirm biber/bibtex ran successfully. biblatex's `bibwarn` is on by "
@@ -1815,6 +1824,67 @@ def _build_legacy_hint(key: str) -> Hint:
     return hint
 
 
+_BIB_NON_ASCII_KEY_RE = re.compile(r"database entry for\s+[\"']([^\"']+)[\"']", re.IGNORECASE)
+_MAKEINDEX_SPECIFIER_RE = re.compile(r"Unknown specifier\s+(\S+)")
+
+
+def _match_bib_key_non_ascii(text: str) -> Any:
+    """只接管“键名本身含非 ASCII 字符”的数据库缺失告警。"""
+    match = _BIB_NON_ASCII_KEY_RE.search(text)
+    if not match:
+        return None
+    key = match.group(1)
+    return match if any(ord(ch) > 127 for ch in key) else None
+
+
+def _build_bib_key_non_ascii(match: Any) -> Hint:
+    key = match.group(1)
+    ascii_key = "".join(ch if ord(ch) < 128 else ch.encode("ascii", "ignore").decode() or "x" for ch in key)
+    return Hint(
+        text=(
+            f"BibTeX 只接受 ASCII 键名，`{key}` 里的非 ASCII 字符导致后端找不到条目。"
+            f"把 .bib 与正文里的 `\\cite` 一起改成纯 ASCII（例如 `{ascii_key}`），再跑一遍 bibtex。"
+        ),
+        kind="bib_key_non_ascii",
+        brief=f"键名 `{key}` 含非 ASCII 字符：改成纯 ASCII 后重跑 bibtex。",
+        text_en=(
+            f"BibTeX accepts ASCII keys only; the non-ASCII characters in `{key}` make the "
+            f"backend miss the entry. Rename the key in the .bib and every `\\cite` to plain "
+            f"ASCII (e.g. `{ascii_key}`), then rerun bibtex."
+        ),
+        brief_en=f"Key `{key}` contains non-ASCII characters: rename it to plain ASCII and rerun bibtex.",
+    )
+
+
+def _match_makeindex_style_specifier(text: str) -> Any:
+    if "Input style error" not in text:
+        return None
+    return _MAKEINDEX_SPECIFIER_RE.search(text)
+
+
+def _build_makeindex_style_specifier(match: Any) -> Hint:
+    specifier = match.group(1)
+    return Hint(
+        text=(
+            f"`{specifier}` 是 `.ist` 样式里的新说明符，当前 makeindex 版本不认识。"
+            "这是样式与工具版本不匹配，不是索引内容错误；只要索引产物（`.ind`/`.nls`）"
+            "已生成即可忽略，要彻底消除可换用与样式匹配的 TeX 发行版或删掉该样式里的 lethead_* 选项。"
+        ),
+        kind="makeindex_style_specifier",
+        brief=f"`.ist` 说明符 `{specifier}` 与 makeindex 版本不匹配；索引产物已生成可忽略。",
+        text_en=(
+            f"`{specifier}` is a newer `.ist` specifier that this makeindex build does not "
+            "understand. It is a style/tool version mismatch, not bad index content; if the "
+            "index output (`.ind`/`.nls`) was produced you can ignore it, otherwise use a "
+            "matching TeX distribution or drop the lethead_* options from the style."
+        ),
+        brief_en=(
+            f"`.ist` specifier `{specifier}` does not match this makeindex build; "
+            "ignore it if the index output was produced."
+        ),
+    )
+
+
 #: 规则表。**顺序即语义**：更具体/更致命的规则必须排在前面
 #: （``Emergency stop`` 先于 ``Undefined control sequence``，
 #:  缺宏包先于缺文件，多行错误先于内建提示表）。
@@ -1861,6 +1931,13 @@ _RULES: tuple[_Rule, ...] = (
     _Rule("hyperref_pdf_string", _match_pdf_string, _build_pdf_string, _LATEX_TOOLS),
     _Rule("fontspec_font_not_found", _match_fontspec_not_found, _build_fontspec_not_found, _LATEX_TOOLS),
     _Rule("package_error", _match_package_error, _build_package_error, _LATEX_TOOLS),
+    _Rule("bib_key_non_ascii", _match_bib_key_non_ascii, _build_bib_key_non_ascii, _BIB_SCOPED_TOOLS),
+    _Rule(
+        "makeindex_style_specifier",
+        _match_makeindex_style_specifier,
+        _build_makeindex_style_specifier,
+        frozenset({"makeindex"}),
+    ),
     _Rule("log_hint", _match_legacy_hint, _build_legacy_hint),
 )
 
@@ -1941,16 +2018,22 @@ def _apply_context(
         main_file = ""
     text = hint.text
     text_en = hint.text_en
+    brief = hint.brief
+    brief_en = hint.brief_en
     commands = list(hint.commands)
     commands_en = list(hint.commands_en)
     if job:
         text = text.replace("<jobname>", job)
         text_en = text_en.replace("<jobname>", job)
+        brief = brief.replace("<jobname>", job)
+        brief_en = brief_en.replace("<jobname>", job)
         commands = [c.replace("<jobname>", job) for c in commands]
         commands_en = [c.replace("<jobname>", job) for c in commands_en]
     if main_file:
         text = text.replace("<主文件>.tex", main_file).replace("<主文件>", main_file)
         text_en = text_en.replace("<主文件>.tex", main_file).replace("<主文件>", main_file)
+        brief = brief.replace("<主文件>.tex", main_file).replace("<主文件>", main_file)
+        brief_en = brief_en.replace("<主文件>.tex", main_file).replace("<主文件>", main_file)
         commands = [c.replace("<主文件>.tex", main_file).replace("<主文件>", main_file) for c in commands]
         commands_en = [c.replace("<main file>.tex", main_file).replace("<main file>", main_file) for c in commands_en]
     engine_bin = _ENGINE_BINARIES.get((tool_name or "").lower())
@@ -1964,6 +2047,8 @@ def _apply_context(
         text_en=text_en,
         commands_en=tuple(commands_en),
         rule_id=hint.rule_id,
+        brief=brief,
+        brief_en=brief_en,
     )
 
 
@@ -1996,6 +2081,8 @@ def hint_for_text(
             text_en=hint.text_en,
             commands_en=hint.commands_en,
             rule_id=hint.rule_id,
+            brief=hint.brief_en,
+            brief_en=hint.brief_en,
         )
     return hint
 

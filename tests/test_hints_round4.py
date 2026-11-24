@@ -191,4 +191,4 @@ def test_underfull_vbox_hits_legacy_hint() -> None:
 def test_rule_count_matches_snapshot() -> None:
     assert len(RULE_IDS) == len(set(RULE_IDS))
     # 实测口径写进文档；快照顺序见 test_hints_precedence.py。
-    assert len(RULE_IDS) == 41
+    assert len(RULE_IDS) == 43
